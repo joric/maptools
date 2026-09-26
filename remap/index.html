@@ -1,0 +1,1685 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>affine remap</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+html,body{height:100%;margin:0;overflow:hidden}
+#map{position:absolute;inset:0;z-index:1}
+#panel{
+  position:absolute;top:16px;left:16px;width:460px;
+  max-height:calc(100vh - 32px);
+  z-index:1000;display:flex;flex-direction:column;
+}
+#panel .card-header{cursor:move;user-select:none}
+#panel .card-body{overflow-y:auto;overflow-x:hidden;padding:12px}
+#panel pre{
+  background:#f8f9fa;border:1px solid #dee2e6;border-radius:.375rem;
+  padding:.5rem;overflow:auto;max-height:260px;margin:0;
+}
+#panel fieldset{border:1px solid #dee2e6;border-radius:.375rem;padding:.75rem;margin:0 0 .75rem}
+#panel fieldset:last-child{margin-bottom:0}
+#panel legend{
+  font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:#6c757d;
+  padding:0 .4rem;margin-bottom:.5rem;width:auto;float:none;
+}
+#panel .info-line{display:flex;justify-content:space-between;gap:.5rem;font-size:.875rem;padding:.1rem 0}
+#panel .info-line span:first-child{color:#6c757d;flex:0 0 auto}
+#panel .info-line span:last-child{
+  text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-family:var(--bs-font-monospace);
+}
+#panel .slot{
+  border:2px solid #dee2e6;border-radius:.375rem;
+  padding:.5rem;margin-top:.5rem;min-width:0;background:#fff;
+  cursor:pointer;
+}
+#panel .slot:hover{border-color:#adb5bd}
+#panel .slot.active{border-color:#fd7e14;background:#fff8e8}
+#panel .slot.active:hover{border-color:#fd7e14}
+#panel .slot-head{display:flex;gap:.5rem;align-items:center;min-width:0}
+#panel .slot-head .num{
+  flex:0 0 auto;font-weight:700;cursor:pointer;user-select:none;
+  padding:.15rem .5rem;border-radius:.25rem;background:#e9ecef;color:#495057;
+  min-width:2rem;text-align:center;
+}
+#panel .slot.active .slot-head .num{background:#fd7e14;color:#fff}
+#panel .slot-head .label{
+  flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#495057;
+}
+#panel .slot-head .mode{
+  flex:0 0 auto;font-size:.75rem;padding:.1rem .4rem;border-radius:.25rem;
+  background:#e9ecef;color:#6c757d;
+}
+#panel .slot-head .mode.tied{background:#ffe0a0;color:#8a5000}
+#panel .coords{display:flex;gap:.4rem;margin-top:.4rem;min-width:0;align-items:center}
+#panel .coords label{font-size:.75rem;color:#6c757d;margin:0;flex:0 0 auto}
+#panel .coords input{flex:1;min-width:0}
+#panel #mouseReadout{background:#f8f9fa;border:1px solid #dee2e6;border-radius:.375rem;padding:.5rem}
+#panel .muted{color:#6c757d;font-size:.875rem;margin-top:.4rem}
+#panel .active-hint{
+  margin-top:.4rem;font-size:.8125rem;color:#8a5000;
+  background:#fff3cd;border:1px solid #ffe0a0;border-radius:.25rem;
+  padding:.25rem .5rem;
+}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="panel" class="card shadow">
+  <div class="card-header bg-white d-flex align-items-center gap-2">
+    <strong class="me-auto">affine remap</strong>
+    <button class="btn btn-sm btn-outline-secondary" id="btnMinimize">_</button>
+  </div>
+  <div class="card-body" id="panelBody">
+
+    <ul class="nav nav-tabs" id="mainTabs">
+      <li class="nav-item"><a class="nav-link active" data-tab="crs" href="#">CRS</a></li>
+      <li class="nav-item"><a class="nav-link" data-tab="data" href="#">Data</a></li>
+      <li class="nav-item"><a class="nav-link" data-tab="presets" href="#">Presets</a></li>
+      <li class="nav-item"><a class="nav-link" data-tab="info" href="#">Info</a></li>
+      <li class="nav-item"><a class="nav-link" data-tab="output" href="#">Output</a></li>
+    </ul>
+
+    <div class="tab-content">
+
+      <!-- ============ TAB: CRS ============ -->
+      <div class="tab-pane active" id="tab-crs">
+
+        <fieldset><legend>Method</legend>
+          <div class="btn-group btn-group-sm w-100" role="group">
+            <input type="radio" class="btn-check" name="crsMethod" id="mPts" value="pts" checked>
+            <label class="btn btn-outline-primary" for="mPts">3 points</label>
+            <input type="radio" class="btn-check" name="crsMethod" id="mSRS" value="srs">
+            <label class="btn btn-outline-primary" for="mSRS">size</label>
+            <input type="radio" class="btn-check" name="crsMethod" id="mBounds" value="bounds">
+            <label class="btn btn-outline-primary" for="mBounds">bounds</label>
+          </div>
+        </fieldset>
+
+        <!-- 3 points -->
+        <fieldset id="panePts"><legend>Reference points</legend>
+          <div class="muted mb-2">
+            Click a slot to make it active, then <strong>click a marker on the map</strong> to tie it.
+            Or just type coordinates. Drag the orange marker to adjust.
+          </div>
+
+          <div class="slot" id="slotBox1" data-slot="1">
+            <div class="slot-head">
+              <span class="num" id="slot1">1</span>
+              <span class="label" id="slotLabel1">empty</span>
+              <span class="mode" id="slotMode1">—</span>
+            </div>
+            <div class="coords">
+              <label>px</label><input id="p1img" class="form-control form-control-sm" type="text" placeholder="x,y">
+              <label>map</label><input id="p1geo" class="form-control form-control-sm" type="text" placeholder="x,y">
+            </div>
+          </div>
+          <div class="slot" id="slotBox2" data-slot="2">
+            <div class="slot-head">
+              <span class="num" id="slot2">2</span>
+              <span class="label" id="slotLabel2">empty</span>
+              <span class="mode" id="slotMode2">—</span>
+            </div>
+            <div class="coords">
+              <label>px</label><input id="p2img" class="form-control form-control-sm" type="text" placeholder="x,y">
+              <label>map</label><input id="p2geo" class="form-control form-control-sm" type="text" placeholder="x,y">
+            </div>
+          </div>
+          <div class="slot" id="slotBox3" data-slot="3">
+            <div class="slot-head">
+              <span class="num" id="slot3">3</span>
+              <span class="label" id="slotLabel3">empty</span>
+              <span class="mode" id="slotMode3">—</span>
+            </div>
+            <div class="coords">
+              <label>px</label><input id="p3img" class="form-control form-control-sm" type="text" placeholder="x,y">
+              <label>map</label><input id="p3geo" class="form-control form-control-sm" type="text" placeholder="x,y">
+            </div>
+          </div>
+
+          <div class="active-hint" id="activeHint">Active slot: 1 — click a marker on the map to tie it</div>
+
+          <button class="btn btn-sm btn-outline-secondary mt-2" id="clearSlots">Clear all</button>
+        </fieldset>
+
+        <!-- size / position -->
+        <fieldset id="paneSRS" style="display:none"><legend>Size &amp; position</legend>
+          <button class="btn btn-sm btn-outline-secondary mb-2" id="srsFromPts">Copy from 3 points</button>
+
+          <div class="row g-1 align-items-center mb-1">
+            <label class="col-4 col-form-label col-form-label-sm">x</label>
+            <div class="col-8"><input id="srsShiftX" class="form-control form-control-sm" type="number" step="any" value="0"></div>
+          </div>
+          <div class="row g-1 align-items-center mb-1">
+            <label class="col-4 col-form-label col-form-label-sm">y</label>
+            <div class="col-8"><input id="srsShiftY" class="form-control form-control-sm" type="number" step="any" value="0"></div>
+          </div>
+          <div class="row g-1 align-items-center mb-1">
+            <label class="col-4 col-form-label col-form-label-sm">size</label>
+            <div class="col-8"><input id="srsSize" class="form-control form-control-sm" type="number" step="any" value="0"></div>
+          </div>
+          <div class="row g-1 align-items-center mb-1">
+            <label class="col-4 col-form-label col-form-label-sm">rotation°</label>
+            <div class="col-8"><input id="srsRotation" class="form-control form-control-sm" type="number" step="any" value="0"></div>
+          </div>
+          <div class="row g-1 align-items-center mb-2">
+            <label class="col-4 col-form-label col-form-label-sm">k vertical</label>
+            <div class="col-8"><input id="srsK" class="form-control form-control-sm" type="number" step="any" value="1"></div>
+          </div>
+          <div class="muted">
+            (x, y) = where the image's top-left pixel lands in map coords.<br>
+            size = image's larger pixel dimension mapped to map units.<br>
+            k vertical = vertical stretch factor (1 = no stretch).<br>
+            rotation rotates around (x, y).
+          </div>
+        </fieldset>
+
+        <!-- bounds -->
+        <fieldset id="paneBounds" style="display:none"><legend>Fit image to bounds</legend>
+          <button class="btn btn-sm btn-outline-secondary mb-2" id="bndFromPts">Copy from 3 points</button>
+
+          <div class="row g-1 align-items-center mb-1">
+            <label class="col-4 col-form-label col-form-label-sm">tl x</label>
+            <div class="col-8"><input id="bndTlX" class="form-control form-control-sm" type="number" step="any" value="0"></div>
+          </div>
+          <div class="row g-1 align-items-center mb-1">
+            <label class="col-4 col-form-label col-form-label-sm">tl y</label>
+            <div class="col-8"><input id="bndTlY" class="form-control form-control-sm" type="number" step="any" value="0"></div>
+          </div>
+          <div class="row g-1 align-items-center mb-1">
+            <label class="col-4 col-form-label col-form-label-sm">br x</label>
+            <div class="col-8"><input id="bndBrX" class="form-control form-control-sm" type="number" step="any" value="0"></div>
+          </div>
+          <div class="row g-1 align-items-center mb-2">
+            <label class="col-4 col-form-label col-form-label-sm">br y</label>
+            <div class="col-8"><input id="bndBrY" class="form-control form-control-sm" type="number" step="any" value="0"></div>
+          </div>
+          <button class="btn btn-sm btn-outline-secondary" id="bndFromCurrent">From current</button>
+          <div class="muted">Maps image pixel (0, 0) → (tl.x, tl.y) and (IMG_W, IMG_H) → (br.x, br.y). No rotation, no shear.</div>
+        </fieldset>
+
+        <fieldset><legend>Apply</legend>
+          <button class="btn btn-sm btn-outline-primary" id="toggleCRS">Use generated CRS</button>
+          <span id="crsMode" class="ms-2">default</span>
+        </fieldset>
+
+      </div>
+
+      <!-- ============ TAB: Data ============ -->
+      <div class="tab-pane" id="tab-data">
+
+        <fieldset><legend>Base layer</legend>
+          <div class="muted mb-1">
+            Image file, image URL, or tileset template. Use <code>{z}</code>, <code>{x}</code>, <code>{y}</code>, <code>{s}</code> for tiles.
+          </div>
+          <input id="baseUrl" class="form-control form-control-sm mb-1" type="text" placeholder="map.png or tiles/{z}/{x}/{y}.jpg">
+          <div class="input-group input-group-sm">
+            <button class="btn btn-outline-secondary" id="loadBase">Load</button>
+            <button class="btn btn-outline-secondary" id="browseBase">Browse…</button>
+            <input type="file" id="baseFile" accept="image/*" style="display:none">
+          </div>
+          <span id="baseInfo" class="muted"></span>
+        </fieldset>
+
+        <fieldset id="tileOpts" style="display:none"><legend>Tileset options</legend>
+          <div class="row g-1 align-items-center mb-1">
+            <label class="col-5 col-form-label col-form-label-sm">tile size</label>
+            <div class="col-7"><input id="tileSize" class="form-control form-control-sm" type="number" step="1" value="512"></div>
+          </div>
+          <div class="row g-1 align-items-center mb-1">
+            <label class="col-5 col-form-label col-form-label-sm">min zoom</label>
+            <div class="col-7"><input id="tileMinZoom" class="form-control form-control-sm" type="number" step="1" value="0"></div>
+          </div>
+          <div class="row g-1 align-items-center mb-1">
+            <label class="col-5 col-form-label col-form-label-sm">max zoom</label>
+            <div class="col-7"><input id="tileMaxZoom" class="form-control form-control-sm" type="number" step="1" value="19"></div>
+          </div>
+          <div class="row g-1 align-items-center mb-1">
+            <label class="col-5 col-form-label col-form-label-sm">max native zoom</label>
+            <div class="col-7"><input id="tileMaxNative" class="form-control form-control-sm" type="number" step="1" value="7"></div>
+          </div>
+          <div class="row g-1 align-items-center mb-1">
+            <label class="col-5 col-form-label col-form-label-sm">edge buffer tiles</label>
+            <div class="col-7"><input id="tileEdgeBuffer" class="form-control form-control-sm" type="number" step="1" value="0"></div>
+          </div>
+          <div class="form-check mb-1">
+            <input class="form-check-input" type="checkbox" id="tileTms">
+            <label class="form-check-label" for="tileTms">TMS Y (bottom-up)</label>
+          </div>
+          <div class="muted mb-1">
+            <strong>max native zoom</strong> = highest zoom with real tiles; higher zooms upscale those tiles.
+          </div>
+          <button class="btn btn-sm btn-outline-secondary mt-2" id="applyTileOpts">Apply</button>
+        </fieldset>
+
+        <fieldset><legend>GeoJSON</legend>
+          <input id="geojsonUrl" class="form-control form-control-sm mb-1" type="text" placeholder="markers.json">
+          <div class="input-group input-group-sm mb-2">
+            <button class="btn btn-outline-secondary" id="loadGeojson">Load</button>
+            <button class="btn btn-outline-secondary" id="browseGeojson">Browse…</button>
+            <input type="file" id="geojsonFile" accept=".json,application/json" style="display:none">
+          </div>
+          <span id="geojsonInfo" class="muted"></span>
+
+          <label class="form-label form-label-sm mb-1 mt-2">Input coordinate order</label>
+          <select id="coordOrder" class="form-select form-select-sm mb-2">
+            <option value="xy">x, y  (horizontal, vertical)</option>
+            <option value="yx">y, x  (vertical, horizontal)</option>
+            <option value="xzy">x, z, y</option>
+            <option value="yzx">y, z, x</option>
+            <option value="xyz">x, y, z</option>
+            <option value="yxz">y, x, z</option>
+          </select>
+
+          <label class="form-label form-label-sm mb-1">Filter (exact, applied on load)</label>
+          <div class="input-group input-group-sm mb-2">
+            <input id="filterField" class="form-control" type="text" placeholder="field">
+            <input id="filterValue" class="form-control" type="text" placeholder="value">
+          </div>
+
+          <label class="form-label form-label-sm mb-1">Tooltip field (defaults to first)</label>
+          <div class="input-group input-group-sm">
+            <select id="searchField" class="form-select"></select>
+            <input id="searchQuery" class="form-control" type="text" placeholder="query">
+          </div>
+        </fieldset>
+
+      </div>
+
+      <!-- ============ TAB: Presets ============ -->
+      <div class="tab-pane" id="tab-presets">
+
+        <fieldset><legend>Presets</legend>
+          <div class="input-group input-group-sm mb-2">
+            <input id="presetName" class="form-control" type="text" placeholder="preset name">
+            <button class="btn btn-primary" id="presetSave">Save</button>
+          </div>
+          <div class="input-group input-group-sm mb-2">
+            <select id="presetList" class="form-select"><option value="">(no presets)</option></select>
+            <button class="btn btn-outline-secondary" id="presetLoad">Load</button>
+            <button class="btn btn-outline-danger" id="presetDelete">Delete</button>
+          </div>
+        </fieldset>
+
+        <fieldset><legend>Settings blob</legend>
+          <button class="btn btn-sm btn-primary w-100" id="settingsCopy">Copy settings to clipboard</button>
+          <div class="muted">Paste into DEFAULT_SETTINGS in the source to ship as the initial state.</div>
+        </fieldset>
+
+      </div>
+
+      <!-- ============ TAB: Info ============ -->
+      <div class="tab-pane" id="tab-info">
+        <fieldset><legend>Transform</legend>
+          <div class="info-line"><span>type</span><span id="infoType">—</span></div>
+          <div class="info-line"><span>rotation</span><span id="infoRot">—</span></div>
+          <div class="info-line"><span>scale X</span><span id="infoScaleX">—</span></div>
+          <div class="info-line"><span>scale Y</span><span id="infoScaleY">—</span></div>
+          <div class="info-line"><span>shear</span><span id="infoShear">—</span></div>
+          <div class="info-line"><span>center (map)</span><span id="infoCenter">—</span></div>
+        </fieldset>
+
+        <fieldset><legend>Image corners (map)</legend>
+          <pre id="infoBounds">—</pre>
+        </fieldset>
+
+        <fieldset><legend>Mouse position</legend>
+          <div id="mouseReadout">
+            <div class="info-line"><span>pixel</span><span id="mouseImg">—</span></div>
+            <div class="info-line"><span>map</span><span id="mouseGeo">—</span></div>
+          </div>
+        </fieldset>
+      </div>
+
+      <!-- ============ TAB: Output ============ -->
+      <div class="tab-pane" id="tab-output">
+        <fieldset><legend>Generated code</legend>
+          <button class="btn btn-sm btn-primary" id="generate">Generate</button>
+          <button class="btn btn-sm btn-outline-secondary" id="reset">Reset</button>
+          <pre id="output" class="mt-2"></pre>
+        </fieldset>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const DEFAULT_SETTINGS = null;
+const K = 'joricsMapToolsRemap';
+const K_LAST_NAME = 'joricsMapToolsRemap_lastName';
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(K);
+    if (!raw) return null;
+    const j = JSON.parse(raw);
+    if (j && j.presets && typeof j.presets === 'object') {
+      return { presets: j.presets };
+    }
+    return null;
+  } catch (e) { return null; }
+}
+function saveSettings(s) { localStorage.setItem(K, JSON.stringify({ presets: s.presets }, null, 2)); }
+
+function seedSettings() {
+  if (DEFAULT_SETTINGS && DEFAULT_SETTINGS.presets
+      && Object.keys(DEFAULT_SETTINGS.presets).length > 0) {
+    saveSettings({ presets: DEFAULT_SETTINGS.presets });
+    return { presets: DEFAULT_SETTINGS.presets };
+  }
+  const presetName = 'default';
+  const preset = snapshotPreset(presetName);
+  const s = { presets: { [presetName]: preset } };
+  saveSettings(s);
+  return s;
+}
+
+function snapshotPreset(name) {
+  const s = {
+    name: name || 'unnamed',
+    baseUrl: val('baseUrl'),
+    geojsonUrl: val('geojsonUrl'),
+    coordOrder: val('coordOrder'),
+    filterField: val('filterField'),
+    filterValue: val('filterValue'),
+    searchField: val('searchField'),
+    searchQuery: val('searchQuery'),
+    usingGenerated: usingGenerated,
+    activeTab: activeTabId,
+    affineSource: affineSource,
+    activeSlot: activeSlot,
+    panelPos: readPanelPos(),
+    tileOpts: readTileOpts(),
+    slots: {},
+    srs: readSRSTab(),
+    boundsTab: readBoundsTab()
+  };
+  [1,2,3].forEach(n => {
+    const slot = slots[n];
+    const rec = { img: val('p' + n + 'img'), map: val('p' + n + 'geo') };
+    if (slot && slot.kind === 'tied' && slot.originalLayer && slot.originalLayer.feature) {
+      const f = slot.originalLayer.feature;
+      rec.tie = { coords: f.geometry ? f.geometry.coordinates : null, props: f.properties || {} };
+    }
+    s.slots[n] = rec;
+  });
+  return s;
+}
+
+function applyPreset(s) {
+  setv('baseUrl', s.baseUrl || '');
+  setv('geojsonUrl', s.geojsonUrl || '');
+  setv('coordOrder', s.coordOrder || 'xy');
+  setv('filterField', s.filterField || '');
+  setv('filterValue', s.filterValue || '');
+  setv('searchQuery', s.searchQuery || '');
+  pendingFF = s.filterField;
+  pendingSF = s.searchField;
+  usingGenerated = !!s.usingGenerated;
+  el('crsMode').textContent = usingGenerated ? 'generated' : 'default';
+  el('toggleCRS').textContent = usingGenerated ? 'Use identity' : 'Use generated CRS';
+
+  if (s.activeTab) switchTab(s.activeTab);
+  if (s.srs) writeSRSTab(s.srs);
+  if (s.boundsTab) writeBoundsTab(s.boundsTab);
+  if (s.tileOpts) writeTileOpts(s.tileOpts);
+  affineSource = s.affineSource || 'pts';
+  setMethodRadio(affineSource);
+  if (s.panelPos) applyPanelPos(s.panelPos);
+
+  [1,2,3].forEach(n => {
+    const old = slots[n];
+    if (old && old.reperMarker) reperGroup.removeLayer(old.reperMarker);
+    slots[n] = null;
+    delete pendingTies[n];
+  });
+  [1,2,3].forEach(n => {
+    const sl = (s.slots && s.slots[n]) || {};
+    setv('p' + n + 'img', sl.img || '');
+    setv('p' + n + 'geo', sl.map || '');
+    const img = parsePair(sl.img);
+    const map = parsePair(sl.map);
+    if (sl.tie) {
+      slots[n] = {
+        kind: 'tied',
+        latlng: img ? pxToLl(img[0], img[1]) : null,
+        map: map,
+        originalLayer: null, reperMarker: null, refId: ''
+      };
+      pendingTies[n] = sl.tie;
+      syncReper(n);
+    } else if (img || map) {
+      slots[n] = makeCoordSlot(img, map);
+    }
+  });
+  activeSlot = s.activeSlot || 1;
+  updateSlotUI();
+}
+
+function refreshPresetList() {
+  const s = loadSettings();
+  const sel = el('presetList');
+  const names = s ? Object.keys(s.presets).sort() : [];
+  sel.innerHTML = '';
+  if (names.length === 0) {
+    const o = document.createElement('option');
+    o.value = ''; o.textContent = '(no presets)';
+    sel.appendChild(o);
+  } else {
+    names.forEach(n => {
+      const o = document.createElement('option');
+      o.value = n; o.textContent = n;
+      sel.appendChild(o);
+    });
+  }
+}
+
+const val  = id => document.getElementById(id).value;
+const setv = (id, v) => document.getElementById(id).value = v;
+const el   = id => document.getElementById(id);
+const parsePair = str => {
+  const p = String(str||'').split(',').map(s => parseFloat(s.trim()));
+  return p.length === 2 && p.every(n => !isNaN(n)) ? p : null;
+};
+const num = id => parseFloat(el(id).value);
+
+let pendingFF = '', pendingSF = '';
+let activeTabId = 'crs';
+let affineSource = 'pts';
+
+let coordOrder = 'xy';
+function reorderCoords(raw) {
+  if (!raw || raw.length < 2) return null;
+  const a = raw[0], b = raw[1], c = raw.length > 2 ? raw[2] : 0;
+  switch (coordOrder) {
+    case 'yx':  return [b, a];
+    case 'xzy': return [a, c];
+    case 'yzx': return [b, c];
+    case 'xyz': return [a, b];
+    case 'yxz': return [b, a];
+    case 'xy':
+    default:    return [a, b];
+  }
+}
+
+let computedAffine = { a:1, b:0, c:0, d:0, e:1, f:0 };
+let activeAffine   = { a:1, b:0, c:0, d:0, e:1, f:0 };
+
+const px2map = (px, py) => [
+  computedAffine.a * px + computedAffine.b * py + computedAffine.c,
+  computedAffine.d * px + computedAffine.e * py + computedAffine.f
+];
+const px2mapActive = (px, py) => [
+  activeAffine.a * px + activeAffine.b * py + activeAffine.c,
+  activeAffine.d * px + activeAffine.e * py + activeAffine.f
+];
+function map2pxActive(mx, my) {
+  const det = activeAffine.a * activeAffine.e - activeAffine.b * activeAffine.d;
+  const inv = 1 / det;
+  return [
+    ( activeAffine.e * (mx - activeAffine.c) - activeAffine.b * (my - activeAffine.f)) * inv,
+    (-activeAffine.d * (mx - activeAffine.c) + activeAffine.a * (my - activeAffine.f)) * inv
+  ];
+}
+const llToPx = (ll) => [ll.lng, -ll.lat];
+const pxToLl = (px, py) => L.latLng(-py, px);
+
+function buildSim(ix1,iy1,ix2,iy2,mx1,my1,mx2,my2) {
+  const dx=ix2-ix1, dy=iy2-iy1, du=mx2-mx1, dv=my2-my1;
+  const di = Math.hypot(dx,dy), dm = Math.hypot(du,dv);
+  const s = dm / di;
+  const rot = Math.atan2(dv,du) - Math.atan2(dy,dx);
+  const c = Math.cos(rot), sn = Math.sin(rot);
+  const a = s*c, b = -s*sn, d = s*sn, e = s*c;
+  return { a, b, d, e, c: mx1 - a*ix1 - b*iy1, f: my1 - d*ix1 - e*iy1 };
+}
+function buildAff3(ix1,iy1,ix2,iy2,ix3,iy3,mx1,my1,mx2,my2,mx3,my3) {
+  const dx1=ix2-ix1, dy1=iy2-iy1, dx2=ix3-ix1, dy2=iy3-iy1;
+  const du1=mx2-mx1, dv1=my2-my1, du2=mx3-mx1, dv2=my3-my1;
+  const det = dx1*dy2 - dx2*dy1;
+  if (Math.abs(det) < 1e-12) return null;
+  const a = (du1*dy2 - du2*dy1) / det;
+  const b = (dx1*du2 - dx2*du1) / det;
+  const d = (dv1*dy2 - dv2*dy1) / det;
+  const e = (dx1*dv2 - dx2*dv1) / det;
+  return { a, b, d, e, c: mx1 - a*ix1 - b*iy1, f: my1 - d*ix1 - e*iy1 };
+}
+
+function readSRSTab() {
+  const sz = baseImageSize();
+  return {
+    x: num('srsShiftX'),
+    y: num('srsShiftY'),
+    size: num('srsSize'),
+    rot: num('srsRotation') * Math.PI / 180,
+    k: num('srsK'),
+    imgW: sz.w, imgH: sz.h
+  };
+}
+function writeSRSTab(o) {
+  if (!o) return;
+  setv('srsShiftX', o.x); setv('srsShiftY', o.y);
+  setv('srsSize', o.size);
+  setv('srsRotation', o.rot * 180 / Math.PI);
+  setv('srsK', o.k);
+}
+function buildSRS(o) {
+  const maxDim = Math.max(o.imgW || 2048, o.imgH || 2048);
+  const unit = o.size / maxDim;
+  const c = Math.cos(o.rot), s = Math.sin(o.rot);
+  const k = o.k;
+  return {
+    a:  unit * c,
+    b: -unit * k * s,
+    c:  o.x,
+    d:  unit * s,
+    e:  unit * k * c,
+    f:  o.y
+  };
+}
+
+function readBoundsTab() {
+  return { tlX: num('bndTlX'), tlY: num('bndTlY'), brX: num('bndBrX'), brY: num('bndBrY') };
+}
+function writeBoundsTab(o) {
+  if (!o) return;
+  setv('bndTlX', o.tlX); setv('bndTlY', o.tlY);
+  setv('bndBrX', o.brX); setv('bndBrY', o.brY);
+}
+function buildBoundsAffine(o) {
+  const sz = baseImageSize();
+  const imgW = sz.w, imgH = sz.h;
+  const a = (o.brX - o.tlX) / imgW;
+  const e = (o.brY - o.tlY) / imgH;
+  return { a, b: 0, c: o.tlX, d: 0, e, f: o.tlY };
+}
+
+// ---------- Tileset options ----------
+let activeTileOpts = {
+  size: 512,
+  minZoom: 0,
+  maxZoom: 19,
+  maxNative: 7,
+  edgeBuffer: 0,
+  tms: false
+};
+function readTileOpts() {
+  return {
+    size: num('tileSize') || 512,
+    minZoom: num('tileMinZoom') || 0,
+    maxZoom: num('tileMaxZoom') || 19,
+    maxNative: isNaN(num('tileMaxNative')) ? null : num('tileMaxNative'),
+    edgeBuffer: isNaN(num('tileEdgeBuffer')) ? 0 : num('tileEdgeBuffer'),
+    tms: el('tileTms').checked
+  };
+}
+function writeTileOpts(o) {
+  if (!o) return;
+  setv('tileSize', o.size);
+  setv('tileMinZoom', o.minZoom);
+  setv('tileMaxZoom', o.maxZoom);
+  setv('tileMaxNative', o.maxNative == null ? '' : o.maxNative);
+  setv('tileEdgeBuffer', o.edgeBuffer || 0);
+  el('tileTms').checked = !!o.tms;
+}
+
+function readPanelPos() {
+  const p = el('panel');
+  return { left: parseInt(p.style.left || '16', 10), top: parseInt(p.style.top || '16', 10) };
+}
+function applyPanelPos(s) {
+  if (!s) return;
+  const p = el('panel');
+  p.style.left = (s.left != null ? s.left : 16) + 'px';
+  p.style.top  = (s.top  != null ? s.top  : 16) + 'px';
+}
+
+// ---------- base layer detection ----------
+function isTileTemplate(url) {
+  return /\{(z|x|y|s)\}/i.test(url);
+}
+function isImageUrl(url) {
+  if (!url) return false;
+  if (isTileTemplate(url)) return false;
+  if (/\.(png|jpg|jpeg|gif|webp|bmp)(\?.*)?$/i.test(url)) return true;
+  if (url.startsWith('data:image')) return true;
+  if (url.startsWith('blob:')) return true;
+  if ((url.startsWith('/') || url.startsWith('file://')) && !isTileTemplate(url)) return true;
+  return false;
+}
+
+const MIN_ZOOM = -20, MAX_ZOOM = 25;
+let map = L.map('map', {
+  crs: L.CRS.Simple,
+  minZoom: MIN_ZOOM, maxZoom: MAX_ZOOM,
+  center: [0,0], zoom: 0,
+  zoomSnap: 0.25, zoomDelta: 0.5
+});
+
+let baseLayer = null;
+let geojsonLayer = null;
+let allFeatures = [];
+let usingGenerated = false;
+let currentTooltipField = '';
+const slots = { 1:null, 2:null, 3:null };
+let activeSlot = 1;
+const reperGroup = L.layerGroup().addTo(map);
+
+function makeCoordSlot(imgPair, mapPair) {
+  return { kind:'coord', latlng: imgPair ? pxToLl(imgPair[0], imgPair[1]) : null,
+    map: mapPair, originalLayer: null, reperMarker: null, refId: '' };
+}
+function syncReper(n) {
+  const s = slots[n];
+  if (!s) return;
+  const wantMarker = s.kind === 'tied' && s.latlng;
+  if (wantMarker && !s.reperMarker) {
+    s.reperMarker = L.marker(s.latlng, {
+      draggable: true, zIndexOffset: 10000,
+      icon: L.divIcon({
+        className: '',
+        html: `<div style="background:#ff8000;color:#fff;border:2px solid #000;border-radius:50%;width:26px;height:26px;line-height:24px;text-align:center;font-weight:bold;font-size:14px;">${n}</div>`,
+        iconSize: [26,26], iconAnchor: [13,13]
+      })
+    }).addTo(reperGroup);
+    s.reperMarker.on('drag', onReperDrag);
+    s.reperMarker.on('dragend', () => { onReperDrag(); });
+  } else if (!wantMarker && s.reperMarker) {
+    reperGroup.removeLayer(s.reperMarker); s.reperMarker = null;
+  }
+  if (s.reperMarker && s.latlng) s.reperMarker.setLatLng(s.latlng);
+}
+function onReperDrag() {
+  for (const k in slots) {
+    const s = slots[k];
+    if (!s || !s.reperMarker) continue;
+    s.latlng = s.reperMarker.getLatLng();
+    const [px, py] = llToPx(s.latlng);
+    el('p' + k + 'img').value = `${px.toFixed(2)},${py.toFixed(2)}`;
+  }
+  recomputeAndRefresh();
+}
+
+function coordsToLatLng(raw) {
+  const r = reorderCoords(raw);
+  if (!r) return L.latLng(0,0);
+  const [mx, my] = r;
+  const [px, py] = map2pxActive(mx, my);
+  return pxToLl(px, py);
+}
+function llToMap(ll) {
+  const [px, py] = llToPx(ll);
+  return px2mapActive(px, py);
+}
+function rawCoordsText(feature) {
+  if (!feature || !feature.geometry || !feature.geometry.coordinates) return '';
+  const c = feature.geometry.coordinates;
+  return Array.isArray(c) ? c.join(', ') : String(c);
+}
+function tooltipText(feature) {
+  const props = (feature && feature.properties) || {};
+  let field = currentTooltipField;
+  if (!field) {
+    const keys = Object.keys(props).sort();
+    field = keys[0] || '';
+  }
+  const val = field ? props[field] : '';
+  const valStr = val == null ? '' : (typeof val === 'object' ? JSON.stringify(val) : String(val));
+  const coords = rawCoordsText(feature);
+  const parts = [];
+  if (valStr) parts.push(valStr);
+  if (coords) parts.push('(' + coords + ')');
+  return parts.join(' ');
+}
+
+function onEachFeature(feature, layer) {
+  let ll = null;
+  if (layer.getLatLng) ll = layer.getLatLng();
+  else if (layer.getBounds) ll = layer.getBounds().getCenter();
+  const tt = tooltipText(feature);
+  if (tt) layer.bindTooltip(tt, { sticky: true });
+  const propsJson = JSON.stringify(feature.properties || {}, null, 2);
+  const rawCoords = rawCoordsText(feature);
+  let coordsHtml = '';
+  if (rawCoords) coordsHtml += `<div><b>geojson:</b> ${rawCoords}</div>`;
+  if (ll) {
+    const [mx, my] = llToMap(ll);
+    coordsHtml += `<div><b>map:</b> x=${mx.toFixed(2)}, y=${my.toFixed(2)}</div>`;
+  }
+  layer.bindPopup(`${coordsHtml}<div class="props-popup"><b>Properties:</b><pre style="margin:4px 0;">${propsJson}</pre></div>`);
+  layer.on('click', () => assignLayerToActiveSlot(layer));
+}
+function createGeojsonLayer(data) { return L.geoJSON(data, { coordsToLatLng, onEachFeature }); }
+geojsonLayer = createGeojsonLayer(null).addTo(map);
+
+function assignLayerToActiveSlot(layer) {
+  for (const k in slots) {
+    if (slots[k] && slots[k].originalLayer === layer) { detachLayerFromSlot(k); break; }
+  }
+  const ll = layer.getLatLng
+    ? layer.getLatLng()
+    : (layer.getBounds ? layer.getBounds().getCenter() : null);
+  if (!ll) return;
+  const feature = layer.feature;
+  const raw = feature && feature.geometry && feature.geometry.coordinates;
+  const reordered = reorderCoords(raw);
+  const mapCoords = reordered || (() => {
+    const [px, py] = llToPx(ll);
+    return px2map(px, py);
+  })();
+  if (layer.dragging) layer.dragging.disable();
+  if (layer.options) { layer.options.draggable = false; layer.options.interactive = false; }
+  if (layer._icon) layer._icon.style.opacity = 0.25;
+  else if (layer.setStyle) layer.setStyle({ opacity: 0.25, fillOpacity: 0.1 });
+  const existingImg = parsePair(val('p' + activeSlot + 'img'));
+  const useLl = existingImg && existingImg.length === 2
+    ? pxToLl(existingImg[0], existingImg[1]) : ll;
+  const old = slots[activeSlot];
+  if (old && old.reperMarker) reperGroup.removeLayer(old.reperMarker);
+  slots[activeSlot] = {
+    kind:'tied', latlng: useLl, map: mapCoords,
+    originalLayer: layer, reperMarker: null,
+    refId: (feature && feature.properties && feature.properties.ref_id) || ''
+  };
+  const [px, py] = llToPx(useLl);
+  el('p' + activeSlot + 'img').value = `${px.toFixed(2)},${py.toFixed(2)}`;
+  el('p' + activeSlot + 'geo').value = `${mapCoords[0]},${mapCoords[1]}`;
+  syncReper(activeSlot);
+  updateSlotUI();
+  recomputeAndRefresh();
+}
+function detachLayerFromSlot(n) {
+  const s = slots[n];
+  if (!s || s.kind !== 'tied') return;
+  if (s.originalLayer) {
+    if (s.originalLayer.options) s.originalLayer.options.interactive = true;
+    if (s.originalLayer._icon) s.originalLayer._icon.style.opacity = 1;
+    else if (s.originalLayer.setStyle) s.originalLayer.setStyle({ opacity:1, fillOpacity:1 });
+  }
+  const imgPair = s.latlng ? llToPx(s.latlng) : null;
+  slots[n] = makeCoordSlot(imgPair, s.map);
+  if (s.reperMarker) { reperGroup.removeLayer(s.reperMarker); s.reperMarker = null; }
+  updateSlotUI();
+}
+
+const pendingTies = {};
+function findFeatureForTie(tie) {
+  if (!tie) return null;
+  if (tie.coords) {
+    const match = allFeatures.find(f =>
+      f && f.geometry && f.geometry.coordinates &&
+      JSON.stringify(f.geometry.coordinates) === JSON.stringify(tie.coords));
+    if (match) return match;
+  }
+  if (tie.props) {
+    const match = allFeatures.find(f =>
+      f && JSON.stringify(f.properties || {}) === JSON.stringify(tie.props));
+    if (match) return match;
+  }
+  return null;
+}
+function restoreTies() {
+  let changed = false;
+  [1,2,3].forEach(n => {
+    const tie = pendingTies[n];
+    if (!tie) return;
+    const s = slots[n];
+    if (!s || s.kind !== 'tied') return;
+    const f = findFeatureForTie(tie);
+    delete pendingTies[n];
+    if (!f) return;
+    let target = null;
+    geojsonLayer.eachLayer(l => { if (l.feature === f) target = l; });
+    if (!target) return;
+    s.originalLayer = target;
+    if (target.dragging) target.dragging.disable();
+    if (target.options) { target.options.draggable = false; target.options.interactive = false; }
+    if (target._icon) target._icon.style.opacity = 0.25;
+    else if (target.setStyle) target.setStyle({ opacity: 0.25, fillOpacity: 0.1 });
+    const reordered = reorderCoords(f.geometry.coordinates);
+    if (reordered) {
+      s.map = reordered;
+      el('p' + n + 'geo').value = `${reordered[0]},${reordered[1]}`;
+    }
+    s.refId = (f.properties && f.properties.ref_id) || '';
+    changed = true;
+  });
+  if (changed) { updateSlotUI(); recomputeAndRefresh(); }
+}
+function findFeatureBy(field, value) {
+  if (!field || value == null || value === '') return null;
+  const v = String(value);
+  return allFeatures.find(f => {
+    const p = (f && f.properties) || {};
+    const pv = p[field];
+    if (pv == null) return false;
+    return String(pv) === v;
+  }) || null;
+}
+function autoPickDefault(n, refId) {
+  if (slots[n] && slots[n].kind === 'tied' && slots[n].originalLayer) return;
+  const f = findFeatureBy('ref_id', refId);
+  if (!f) return;
+  let target = null;
+  geojsonLayer.eachLayer(l => { if (l.feature === f) target = l; });
+  if (!target) return;
+  const prev = activeSlot;
+  activeSlot = n;
+  assignLayerToActiveSlot(target);
+  activeSlot = prev;
+  updateSlotUI();
+}
+
+function recomputeAffine() {
+  if (affineSource === 'srs') {
+    computedAffine = buildSRS(readSRSTab());
+    activeAffine = usingGenerated ? computedAffine : { a:1, b:0, c:0, d:0, e:1, f:0 };
+    return { ok: true, type: 'size' };
+  }
+  if (affineSource === 'bounds') {
+    computedAffine = buildBoundsAffine(readBoundsTab());
+    activeAffine = usingGenerated ? computedAffine : { a:1, b:0, c:0, d:0, e:1, f:0 };
+    return { ok: true, type: 'bounds' };
+  }
+  const filled = [1,2,3].map(n => slots[n])
+    .filter(s => s && s.latlng && s.map && Array.isArray(s.map) && s.map.length === 2);
+  let A = null, type = null;
+  if (filled.length >= 3) {
+    const [s1, s2, s3] = filled;
+    const [ix1, iy1] = llToPx(s1.latlng);
+    const [ix2, iy2] = llToPx(s2.latlng);
+    const [ix3, iy3] = llToPx(s3.latlng);
+    A = buildAff3(ix1, iy1, ix2, iy2, ix3, iy3,
+      s1.map[0], s1.map[1], s2.map[0], s2.map[1], s3.map[0], s3.map[1]);
+    if (!A) return { ok:false, reason:'3 points collinear in pixel space' };
+    type = 'affine3';
+  } else if (filled.length >= 2) {
+    const [s1, s2] = filled;
+    const [ix1, iy1] = llToPx(s1.latlng);
+    const [ix2, iy2] = llToPx(s2.latlng);
+    A = buildSim(ix1, iy1, ix2, iy2, s1.map[0], s1.map[1], s2.map[0], s2.map[1]);
+    type = 'similarity2';
+  } else {
+    return { ok:false, reason:'need ≥2 filled slots' };
+  }
+  computedAffine = A;
+  activeAffine = usingGenerated ? A : { a:1, b:0, c:0, d:0, e:1, f:0 };
+  return { ok:true, type };
+}
+
+function computePtsAffine() {
+  const filled = [1,2,3].map(n => slots[n])
+    .filter(s => s && s.latlng && s.map && Array.isArray(s.map) && s.map.length === 2);
+  if (filled.length >= 3) {
+    const [s1, s2, s3] = filled;
+    const [ix1, iy1] = llToPx(s1.latlng);
+    const [ix2, iy2] = llToPx(s2.latlng);
+    const [ix3, iy3] = llToPx(s3.latlng);
+    return buildAff3(ix1, iy1, ix2, iy2, ix3, iy3,
+      s1.map[0], s1.map[1], s2.map[0], s2.map[1], s3.map[0], s3.map[1]);
+  }
+  if (filled.length >= 2) {
+    const [s1, s2] = filled;
+    const [ix1, iy1] = llToPx(s1.latlng);
+    const [ix2, iy2] = llToPx(s2.latlng);
+    return buildSim(ix1, iy1, ix2, iy2, s1.map[0], s1.map[1], s2.map[0], s2.map[1]);
+  }
+  return null;
+}
+
+function baseImageSize() {
+  if (baseLayer && baseLayer._image) {
+    return { w: baseLayer._image.naturalWidth, h: baseLayer._image.naturalHeight };
+  }
+  if (baseLayer instanceof L.TileLayer) {
+    const s = activeTileOpts.size || 512;
+    return { w: s, h: s };
+  }
+  return { w: 2048, h: 2048 };
+}
+
+function computeCornerBounds() {
+  const { w: imgW, h: imgH } = baseImageSize();
+  const tl = px2map(0, 0);
+  const tr = px2map(imgW, 0);
+  const br = px2map(imgW, imgH);
+  const bl = px2map(0, imgH);
+  return { tl, tr, br, bl, imgW, imgH };
+}
+function computeAABB() {
+  const cb = computeCornerBounds();
+  const xs = [cb.tl[0], cb.tr[0], cb.br[0], cb.bl[0]];
+  const ys = [cb.tl[1], cb.tr[1], cb.br[1], cb.bl[1]];
+  return { left: Math.min(...xs), top: Math.min(...ys),
+    right: Math.max(...xs), bottom: Math.max(...ys) };
+}
+function updateInfoPanel(r) {
+  if (!r.ok) {
+    ['infoType','infoRot','infoScaleX','infoScaleY','infoShear','infoCenter','infoBounds']
+      .forEach(id => el(id).textContent = (id === 'infoType' ? r.reason : '—'));
+    return;
+  }
+  const A = computedAffine;
+  const rot = Math.atan2(A.d, A.a) * 180 / Math.PI;
+  const sx = Math.hypot(A.a, A.d);
+  const sy = Math.hypot(A.b, A.e);
+  const shear = (sx && sy) ? (A.a*A.b + A.d*A.e) / (sx*sy) : 0;
+  el('infoType').textContent   = r.type;
+  el('infoRot').textContent    = rot.toFixed(3) + '°';
+  el('infoScaleX').textContent = sx.toFixed(4);
+  el('infoScaleY').textContent = sy.toFixed(4);
+  el('infoShear').textContent  = shear.toFixed(4);
+  el('infoCenter').textContent = `x=0, y=0`;
+  const cb = computeCornerBounds();
+  el('infoBounds').textContent =
+    `tl: x=${cb.tl[0].toFixed(2)}, y=${cb.tl[1].toFixed(2)}\n` +
+    `tr: x=${cb.tr[0].toFixed(2)}, y=${cb.tr[1].toFixed(2)}\n` +
+    `br: x=${cb.br[0].toFixed(2)}, y=${cb.br[1].toFixed(2)}\n` +
+    `bl: x=${cb.bl[0].toFixed(2)}, y=${cb.bl[1].toFixed(2)}`;
+}
+function recomputeAndRefresh() {
+  const r = recomputeAffine();
+  updateInfoPanel(r);
+  updateMouseReadout(lastMouseLl);
+  if (!r.ok) {
+    computedAffine = { a:1, b:0, c:0, d:0, e:1, f:0 };
+    activeAffine   = { a:1, b:0, c:0, d:0, e:1, f:0 };
+    if (usingGenerated) refreshGeojson();
+    return;
+  }
+  if (usingGenerated) refreshGeojson();
+}
+let lastMouseLl = null;
+function updateMouseReadout(ll) {
+  if (!ll) {
+    el('mouseImg').textContent = '—'; el('mouseGeo').textContent = '—'; return;
+  }
+  const [px, py] = llToPx(ll);
+  el('mouseImg').textContent = `x=${px.toFixed(2)}, y=${py.toFixed(2)}`;
+  const [mx, my] = px2map(px, py);
+  el('mouseGeo').textContent = `x=${mx.toFixed(2)}, y=${my.toFixed(2)}`;
+}
+map.on('mousemove', (e) => { lastMouseLl = e.latlng; updateMouseReadout(e.latlng); });
+map.on('mouseout', () => { lastMouseLl = null; updateMouseReadout(null); });
+
+function updateSlotUI() {
+  [1,2,3].forEach(n => {
+    const s = slots[n];
+    el('slotBox' + n).classList.toggle('active', activeSlot === n);
+    const lbl = el('slotLabel' + n);
+    const mode = el('slotMode' + n);
+    if (!s) {
+      lbl.textContent = 'empty'; lbl.title = '';
+      mode.textContent = '—'; mode.className = 'mode';
+    } else if (s.kind === 'tied') {
+      const props = (s.originalLayer && s.originalLayer.feature && s.originalLayer.feature.properties) || {};
+      lbl.textContent = props.title || props.name || props.ref_id || (pendingTies[n] ? 'tied (pending)' : 'picked');
+      lbl.title = lbl.textContent;
+      mode.textContent = 'tied'; mode.className = 'mode tied';
+    } else {
+      lbl.textContent = s.map ? `x=${s.map[0].toFixed(1)}, y=${s.map[1].toFixed(1)}` : 'coords';
+      lbl.title = lbl.textContent;
+      mode.textContent = 'coords'; mode.className = 'mode';
+    }
+  });
+  el('activeHint').textContent =
+    `Active slot: ${activeSlot} — click a marker on the map to tie it`;
+}
+[1,2,3].forEach(n => {
+  el('slotBox' + n).addEventListener('click', (e) => {
+    if (e.target.tagName === 'INPUT') return;
+    activeSlot = n;
+    updateSlotUI();
+  });
+});
+el('clearSlots').onclick = () => {
+  [1,2,3].forEach(n => {
+    if (slots[n] && slots[n].reperMarker) reperGroup.removeLayer(slots[n].reperMarker);
+    if (slots[n] && slots[n].originalLayer) {
+      const l = slots[n].originalLayer;
+      if (l.options) l.options.interactive = true;
+      if (l._icon) l._icon.style.opacity = 1;
+      else if (l.setStyle) l.setStyle({ opacity:1, fillOpacity:1 });
+    }
+    delete pendingTies[n];
+    slots[n] = null;
+    el('p' + n + 'img').value = ''; el('p' + n + 'geo').value = '';
+  });
+  updateSlotUI(); recomputeAndRefresh();
+};
+[1,2,3].forEach(n => {
+  el('p' + n + 'img').addEventListener('change', () => {
+    const v = parsePair(el('p' + n + 'img').value);
+    if (!v) return;
+    const s = slots[n];
+    const ll = pxToLl(v[0], v[1]);
+    if (s) { s.latlng = ll; if (s.kind === 'tied' && s.reperMarker) s.reperMarker.setLatLng(ll); }
+    else slots[n] = makeCoordSlot(v, null);
+    updateSlotUI(); recomputeAndRefresh();
+  });
+  el('p' + n + 'geo').addEventListener('change', () => {
+    const v = parsePair(el('p' + n + 'geo').value);
+    if (!v) return;
+    const s = slots[n];
+    if (s) s.map = v; else slots[n] = makeCoordSlot(null, v);
+    updateSlotUI(); recomputeAndRefresh();
+  });
+});
+
+// ---------- base layer loading (image or tiles) ----------
+el('loadBase').onclick = () => {
+  const url = val('baseUrl').trim();
+  if (!url) return;
+  loadBaseFromUrl(url);
+};
+
+// Build a tile layer using the current tile options.
+// maxNativeZoom is applied as a tileLayer option (correctly), with maxZoom
+// larger so Leaflet upscales the max-native tiles at higher zooms.
+function buildTileLayer(url, o) {
+  const size = o.size || 512;
+  const minZ = o.minZoom || 0;
+  const maxZ = o.maxZoom || 19;
+  const maxNative = (o.maxNative == null || isNaN(o.maxNative)) ? null : o.maxNative;
+  const opts = {
+    tileSize: size,
+    minZoom: minZ,
+    maxZoom: maxZ,
+    continuousWorld: true,
+    noWrap: true,
+    tms: !!o.tms
+  };
+  if (maxNative != null) opts.maxNativeZoom = maxNative;
+  if (o.edgeBuffer) opts.edgeBufferTiles = o.edgeBuffer;
+  return L.tileLayer(url, opts);
+}
+
+function loadBaseFromUrl(url) {
+  if (baseLayer) map.removeLayer(baseLayer);
+  baseLayer = null;
+
+  if (isTileTemplate(url)) {
+    el('tileOpts').style.display = '';
+    const o = readTileOpts();
+    activeTileOpts = o;
+    baseLayer = buildTileLayer(url, o).addTo(map);
+
+    const size = o.size || 512;
+    const b = [[-size, 0], [0, size]];
+    map.fitBounds(b);
+    el('baseInfo').textContent = ` tiles ${size}px`;
+    recomputeAndRefresh();
+    return;
+  }
+
+  el('tileOpts').style.display = 'none';
+  if (isImageUrl(url)) {
+    baseLayer = L.imageOverlay(url, [[-500,0],[0,500]]).addTo(map);
+    baseLayer.on('load', () => {
+      const img = baseLayer._image;
+      const w = img.naturalWidth, h = img.naturalHeight;
+      const b = [[-h,0],[0,w]];
+      baseLayer.setBounds(b); map.fitBounds(b);
+      el('baseInfo').textContent = ` ${w}×${h}`;
+      if (num('srsSize') === 0) setv('srsSize', Math.max(w, h));
+      recomputeAndRefresh();
+    });
+    baseLayer.on('error', () => { el('baseInfo').textContent = ' err'; });
+  } else {
+    el('tileOpts').style.display = '';
+    const o = readTileOpts();
+    activeTileOpts = o;
+    baseLayer = buildTileLayer(url, o).addTo(map);
+    el('baseInfo').textContent = ` tiles ${o.size}px`;
+    recomputeAndRefresh();
+  }
+}
+
+el('browseBase').onclick = () => el('baseFile').click();
+el('baseFile').onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  el('baseUrl').value = file.name;
+  loadBaseFromUrl(url);
+  e.target.value = '';
+};
+
+el('applyTileOpts').onclick = () => {
+  const url = val('baseUrl').trim();
+  if (!url) return;
+  loadBaseFromUrl(url);
+};
+
+// ---------- GeoJSON loading ----------
+el('loadGeojson').onclick = async () => {
+  const url = val('geojsonUrl').trim();
+  if (!url) return;
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    ingestGeojson(data);
+  } catch (e) { el('geojsonInfo').textContent = ' err: ' + e.message; }
+};
+function ingestGeojson(data) {
+  allFeatures = normalizeFeatures(data);
+  populateFieldDropdowns();
+  applyFilter();
+  el('geojsonInfo').textContent = ` ${allFeatures.length}`;
+  restoreTies();
+  autoPickDefault(1, '07311006');
+  autoPickDefault(2, '07311005');
+  autoPickDefault(3, '07311004');
+}
+
+el('browseGeojson').onclick = () => el('geojsonFile').click();
+el('geojsonFile').onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      el('geojsonUrl').value = file.name;
+      ingestGeojson(data);
+    } catch (err) {
+      el('geojsonInfo').textContent = ' err: ' + err.message;
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+};
+
+function normalizeFeatures(data) {
+  if (!data) return [];
+  if (Array.isArray(data)) return data.filter(f => f && f.type === 'Feature');
+  if (Array.isArray(data.features)) return data.features.filter(f => f && f.type === 'Feature');
+  if (data.type === 'FeatureCollection' && Array.isArray(data.features)) return data.features;
+  if (data.type === 'Feature') return [data];
+  return [];
+}
+function populateFieldDropdowns() {
+  const keys = new Set();
+  allFeatures.forEach(f => {
+    if (f && f.properties && typeof f.properties === 'object')
+      Object.keys(f.properties).forEach(k => keys.add(k));
+  });
+  const sorted = [...keys].sort();
+  const sSel = el('searchField');
+  sSel.innerHTML = '';
+  const blank = document.createElement('option');
+  blank.value = ''; blank.textContent = '(none)';
+  sSel.appendChild(blank);
+  sorted.forEach(k => {
+    const o = document.createElement('option');
+    o.value = k; o.textContent = k; sSel.appendChild(o);
+  });
+  const ws = pendingSF || sorted[0] || '';
+  sSel.value = ws;
+  currentTooltipField = sSel.value;
+  pendingSF = '';
+}
+function applyFilter() {
+  const fField = val('filterField').trim();
+  const fVal = val('filterValue').trim();
+  const sField = val('searchField');
+  const sQ = val('searchQuery').trim().toLowerCase();
+  const filtered = allFeatures.filter(f => {
+    const props = (f && f.properties) || {};
+    if (fField && fVal) { if (String(props[fField] ?? '') !== fVal) return false; }
+    if (sField && sQ) {
+      const v = props[sField];
+      if (v == null) return false;
+      const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+      if (!s.toLowerCase().includes(sQ)) return false;
+    }
+    return true;
+  });
+  if (geojsonLayer) map.removeLayer(geojsonLayer);
+  geojsonLayer = createGeojsonLayer({ type:'FeatureCollection', features: filtered }).addTo(map);
+  el('geojsonInfo').textContent = ` ${filtered.length}/${allFeatures.length}`;
+  [1,2,3].forEach(n => {
+    const s = slots[n];
+    if (!s || s.kind !== 'tied' || !s.originalLayer || !s.originalLayer.feature) return;
+    const feat = s.originalLayer.feature;
+    let newLayer = null;
+    geojsonLayer.eachLayer(l => { if (l.feature === feat) newLayer = l; });
+    if (newLayer) {
+      s.originalLayer = newLayer;
+      if (newLayer.dragging) newLayer.dragging.disable();
+      if (newLayer.options) { newLayer.options.draggable = false; newLayer.options.interactive = false; }
+      if (newLayer._icon) newLayer._icon.style.opacity = 0.25;
+      else if (newLayer.setStyle) newLayer.setStyle({ opacity: 0.25, fillOpacity: 0.1 });
+    }
+  });
+}
+function refreshGeojson() { if (allFeatures.length) applyFilter(); }
+
+el('searchQuery').addEventListener('input', () => { applyFilter(); });
+el('filterValue').addEventListener('change', () => { applyFilter(); });
+el('filterField').addEventListener('change', () => { applyFilter(); });
+el('searchField').addEventListener('change', () => {
+  currentTooltipField = val('searchField'); applyFilter();
+});
+el('coordOrder').addEventListener('change', () => {
+  coordOrder = val('coordOrder');
+  [1,2,3].forEach(n => {
+    const s = slots[n];
+    if (!s || s.kind !== 'tied' || !s.originalLayer || !s.originalLayer.feature) return;
+    const raw = s.originalLayer.feature.geometry.coordinates;
+    const reordered = reorderCoords(raw);
+    if (reordered) { s.map = reordered; el('p' + n + 'geo').value = `${reordered[0]},${reordered[1]}`; }
+  });
+  applyFilter(); recomputeAndRefresh();
+});
+
+function switchTab(id) {
+  activeTabId = id;
+  document.querySelectorAll('#mainTabs .nav-link').forEach(a => {
+    a.classList.toggle('active', a.dataset.tab === id);
+  });
+  document.querySelectorAll('.tab-pane').forEach(p => {
+    p.classList.toggle('active', p.id === 'tab-' + id);
+  });
+}
+document.querySelectorAll('#mainTabs .nav-link').forEach(a => {
+  a.addEventListener('click', (e) => {
+    e.preventDefault();
+    switchTab(a.dataset.tab);
+  });
+});
+
+function setMethodRadio(src) {
+  el('mPts').checked    = src === 'pts';
+  el('mSRS').checked    = src === 'srs';
+  el('mBounds').checked = src === 'bounds';
+  el('panePts').style.display    = src === 'pts' ? '' : 'none';
+  el('paneSRS').style.display    = src === 'srs' ? '' : 'none';
+  el('paneBounds').style.display = src === 'bounds' ? '' : 'none';
+}
+document.querySelectorAll('input[name="crsMethod"]').forEach(r => {
+  r.addEventListener('change', () => {
+    if (!r.checked) return;
+    affineSource = r.value;
+    setMethodRadio(affineSource);
+    recomputeAndRefresh();
+  });
+});
+['srsShiftX','srsShiftY','srsSize','srsRotation','srsK',
+ 'bndTlX','bndTlY','bndBrX','bndBrY'].forEach(id => {
+  el(id).addEventListener('input', () => {
+    if (affineSource === 'srs' || affineSource === 'bounds') {
+      recomputeAndRefresh();
+    }
+  });
+});
+el('bndFromCurrent').onclick = () => {
+  const cb = computeCornerBounds();
+  setv('bndTlX', cb.tl[0].toFixed(4));
+  setv('bndTlY', cb.tl[1].toFixed(4));
+  setv('bndBrX', cb.br[0].toFixed(4));
+  setv('bndBrY', cb.br[1].toFixed(4));
+  if (affineSource === 'bounds') recomputeAndRefresh();
+};
+
+el('srsFromPts').onclick = () => {
+  const A = computePtsAffine();
+  if (!A) { alert('Need at least 2 filled reference points.'); return; }
+  const sz = baseImageSize();
+  const maxDim = Math.max(sz.w, sz.h);
+  const unit = Math.hypot(A.a, A.d);
+  const theta = Math.atan2(A.d, A.a);
+  const kMag = (unit > 0) ? Math.hypot(A.b, A.e) / unit : 1;
+  setv('srsShiftX', A.c);
+  setv('srsShiftY', A.f);
+  setv('srsSize', unit * maxDim);
+  setv('srsRotation', theta * 180 / Math.PI);
+  setv('srsK', kMag);
+  affineSource = 'srs';
+  setMethodRadio('srs');
+  recomputeAndRefresh();
+};
+el('bndFromPts').onclick = () => {
+  const A = computePtsAffine();
+  if (!A) { alert('Need at least 2 filled reference points.'); return; }
+  const prev = computedAffine;
+  computedAffine = A;
+  const cb = computeCornerBounds();
+  computedAffine = prev;
+  setv('bndTlX', cb.tl[0].toFixed(4));
+  setv('bndTlY', cb.tl[1].toFixed(4));
+  setv('bndBrX', cb.br[0].toFixed(4));
+  setv('bndBrY', cb.br[1].toFixed(4));
+  affineSource = 'bounds';
+  setMethodRadio('bounds');
+  recomputeAndRefresh();
+};
+
+// ---------- Presets tab ----------
+let lastName = localStorage.getItem(K_LAST_NAME) || '';
+el('presetName').value = lastName;
+el('presetName').addEventListener('input', () => {
+  lastName = el('presetName').value;
+  localStorage.setItem(K_LAST_NAME, lastName);
+});
+el('presetSave').onclick = () => {
+  const name = val('presetName').trim();
+  if (!name) { alert('Enter a preset name.'); return; }
+  const s = loadSettings() || { presets: {} };
+  if (s.presets[name] && !confirm(`Preset "${name}" exists. Overwrite?`)) return;
+  s.presets[name] = snapshotPreset(name);
+  saveSettings(s);
+  refreshPresetList();
+  el('presetList').value = name;
+  localStorage.setItem(K_LAST_NAME, name);
+};
+el('presetLoad').onclick = () => {
+  const name = val('presetList');
+  if (!name) return;
+  const s = loadSettings();
+  if (!s || !s.presets[name]) return;
+  [1,2,3].forEach(n => {
+    if (slots[n] && slots[n].reperMarker) reperGroup.removeLayer(slots[n].reperMarker);
+    if (slots[n] && slots[n].originalLayer) {
+      const l = slots[n].originalLayer;
+      if (l.options) l.options.interactive = true;
+      if (l._icon) l._icon.style.opacity = 1;
+      else if (l.setStyle) l.setStyle({ opacity:1, fillOpacity:1 });
+    }
+    slots[n] = null; delete pendingTies[n];
+  });
+  applyPreset(s.presets[name]);
+  coordOrder = val('coordOrder');
+  el('presetName').value = name;
+  lastName = name;
+  localStorage.setItem(K_LAST_NAME, name);
+  refreshPresetList();
+  el('loadBase').click();
+  el('loadGeojson').click();
+};
+el('presetDelete').onclick = () => {
+  const name = val('presetList');
+  if (!name) return;
+  const s = loadSettings();
+  if (!s || !s.presets[name]) return;
+  if (!confirm(`Delete preset "${name}"?`)) return;
+  delete s.presets[name];
+  saveSettings(s);
+  refreshPresetList();
+};
+el('settingsCopy').onclick = async () => {
+  const s = loadSettings();
+  const txt = JSON.stringify(s || { presets:{} }, null, 2);
+  try {
+    await navigator.clipboard.writeText(txt);
+    alert('Copied settings (' + txt.length + ' bytes) to clipboard.\n\nPaste into DEFAULT_SETTINGS in the source.');
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = txt; ta.style.position = 'fixed'; ta.style.left = '-9999px';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta);
+    alert('Copied settings (' + txt.length + ' bytes) to clipboard.\n\nPaste into DEFAULT_SETTINGS in the source.');
+  }
+};
+
+el('generate').onclick = () => {
+  const r = recomputeAffine();
+  if (!r.ok) { el('output').textContent = '❌ ' + r.reason; return; }
+  refreshGeojson();
+  const A = computedAffine;
+  const rotationDeg = Math.atan2(A.d, A.a) * 180 / Math.PI;
+  const scaleX = Math.hypot(A.a, A.d);
+  const scaleY = Math.hypot(A.b, A.e);
+  const shear = (A.a*A.b + A.d*A.e) / (scaleX*scaleY);
+  const sz = baseImageSize();
+  const imgW = sz.w, imgH = sz.h;
+  const isTiles = isTileTemplate(val('baseUrl'));
+  const cb = computeCornerBounds();
+  const corner_bounds = {
+    tl: { x: parseFloat(cb.tl[0].toFixed(4)), y: parseFloat(cb.tl[1].toFixed(4)) },
+    tr: { x: parseFloat(cb.tr[0].toFixed(4)), y: parseFloat(cb.tr[1].toFixed(4)) },
+    br: { x: parseFloat(cb.br[0].toFixed(4)), y: parseFloat(cb.br[1].toFixed(4)) },
+    bl: { x: parseFloat(cb.bl[0].toFixed(4)), y: parseFloat(cb.bl[1].toFixed(4)) }
+  };
+  const aabbRaw = computeAABB();
+  const aabb = {
+    left: parseFloat(aabbRaw.left.toFixed(4)), top: parseFloat(aabbRaw.top.toFixed(4)),
+    right: parseFloat(aabbRaw.right.toFixed(4)), bottom: parseFloat(aabbRaw.bottom.toFixed(4))
+  };
+  const center = { left: 0.0, top: 0.0, alt: 0 };
+  const refPts = [];
+  [1,2,3].forEach(n => {
+    const s = slots[n];
+    if (s && s.latlng && s.map) {
+      const [px, py] = llToPx(s.latlng);
+      refPts.push(`    { px: [${px.toFixed(4)}, ${py.toFixed(4)}], map: [${s.map[0]}, ${s.map[1]}] }`);
+    }
+  });
+  const reorderFn = `function reorderCoords(raw) {
+  if (!raw || raw.length < 2) return null;
+  const a = raw[0], b = raw[1], c = raw.length > 2 ? raw[2] : 0;
+  switch ('${coordOrder}') {
+    case 'yx':  return [b, a];
+    case 'xzy': return [a, c];
+    case 'yzx': return [b, c];
+    case 'xyz': return [a, b];
+    case 'yxz': return [b, a];
+    case 'xy':
+    default:    return [a, b];
+  }
+}`;
+  const header = `// ${r.type} remap: image pixels -> map coords
+// Input coordinate order: ${coordOrder}
+// Rotation: ${rotationDeg.toFixed(3)}°  scaleX: ${scaleX.toFixed(4)}  scaleY: ${scaleY.toFixed(4)}  shear: ${shear.toFixed(4)}
+// Source: ${affineSource}${isTiles ? ' (tileset)' : ''}`;
+  const solverFn = `const AFFINE = ${JSON.stringify({
+    a: parseFloat(A.a.toFixed(10)), b: parseFloat(A.b.toFixed(10)), c: parseFloat(A.c.toFixed(4)),
+    d: parseFloat(A.d.toFixed(10)), e: parseFloat(A.e.toFixed(10)), f: parseFloat(A.f.toFixed(4))
+  })};
+
+function px2map(px, py) { return [AFFINE.a*px + AFFINE.b*py + AFFINE.c, AFFINE.d*px + AFFINE.e*py + AFFINE.f]; }
+function map2px(mx, my) {
+  const invDet = 1 / (AFFINE.a*AFFINE.e - AFFINE.b*AFFINE.d);
+  return [
+    ( AFFINE.e*(mx-AFFINE.c) - AFFINE.b*(my-AFFINE.f)) * invDet,
+    (-AFFINE.d*(mx-AFFINE.c) + AFFINE.a*(my-AFFINE.f)) * invDet,
+  ];
+}`;
+
+  let baseCode;
+  if (isTiles) {
+    const o = readTileOpts();
+    const lines = [
+      `// Tileset`,
+      `const TILE_URL = '${val('baseUrl')}';`,
+      `const TILE_SIZE = ${o.size};`,
+      `const TILE_MIN_ZOOM = ${o.minZoom};`,
+      `const TILE_MAX_ZOOM = ${o.maxZoom};`
+    ];
+    if (o.maxNative != null && !isNaN(o.maxNative)) {
+      lines.push(`const TILE_MAX_NATIVE_ZOOM = ${o.maxNative};`);
+    }
+    if (o.edgeBuffer) {
+      lines.push(`const TILE_EDGE_BUFFER = ${o.edgeBuffer};`);
+    }
+    lines.push('');
+    lines.push(`const map = L.map('map', {`);
+    lines.push(`  crs: L.CRS.Simple,`);
+    lines.push(`  minZoom: ${MIN_ZOOM}, maxZoom: ${MAX_ZOOM},`);
+    lines.push(`  center: [-${imgH/2}, ${imgW/2}], zoom: 0,`);
+    lines.push(`  zoomSnap: 0.25, zoomDelta: 0.5,`);
+    lines.push(`});`);
+    lines.push('');
+    lines.push(`const tileOpts = {`);
+    lines.push(`  tileSize: TILE_SIZE,`);
+    lines.push(`  minZoom: TILE_MIN_ZOOM,`);
+    lines.push(`  maxZoom: TILE_MAX_ZOOM,`);
+    if (o.maxNative != null && !isNaN(o.maxNative)) {
+      lines.push(`  maxNativeZoom: TILE_MAX_NATIVE_ZOOM,`);
+    }
+    if (o.edgeBuffer) {
+      lines.push(`  edgeBufferTiles: TILE_EDGE_BUFFER,`);
+    }
+    lines.push(`  continuousWorld: true,`);
+    lines.push(`  noWrap: true,`);
+    lines.push(`  tms: ${o.tms ? 'true' : 'false'},`);
+    lines.push(`};`);
+    lines.push('');
+    lines.push(`L.tileLayer(TILE_URL, tileOpts).addTo(map);`);
+    baseCode = lines.join('\n');
+  } else {
+    baseCode = `const map = L.map('map', {
+  crs: L.CRS.Simple,
+  minZoom: ${MIN_ZOOM}, maxZoom: ${MAX_ZOOM},
+  center: [-${imgH/2}, ${imgW/2}], zoom: 0,
+  zoomSnap: 0.25, zoomDelta: 0.5,
+});
+
+const IMG_W = ${imgW}, IMG_H = ${imgH};
+L.imageOverlay('map.png', [[-IMG_H, 0], [0, IMG_W]]).addTo(map);
+map.fitBounds([[-IMG_H, 0], [0, IMG_W]]);`;
+  }
+
+  el('output').textContent = `${header}
+
+// Raw GeoJSON input coordinates are reordered BEFORE the affine is applied.
+${reorderFn}
+
+// Reference points used to build the affine (informational):
+const REF_POINTS = [
+${refPts.join(',\n')}
+];
+
+${solverFn}
+
+${baseCode}
+
+function coordsToLatLng(raw) {
+  const r = reorderCoords(raw);
+  if (!r) return L.latLng(0, 0);
+  const [px, py] = map2px(r[0], r[1]);
+  return L.latLng(-py, px);
+}
+
+const TOOLTIP_FIELD = '${currentTooltipField}';
+
+function tooltipText(f) {
+  const props = (f && f.properties) || {};
+  let field = TOOLTIP_FIELD;
+  if (!field) {
+    const keys = Object.keys(props).sort();
+    field = keys[0] || '';
+  }
+  const val = field ? props[field] : '';
+  const valStr = val == null ? '' : (typeof val === 'object' ? JSON.stringify(val) : String(val));
+  const rawCoords = (f.geometry && f.geometry.coordinates) ? f.geometry.coordinates.join(', ') : '';
+  const parts = [];
+  if (valStr) parts.push(valStr);
+  if (rawCoords) parts.push('(' + rawCoords + ')');
+  return parts.join(' ');
+}
+
+fetch('markers.json').then(r => r.json()).then(data => {
+  L.geoJSON(data, { coordsToLatLng, onEachFeature: (f, l) => {
+    const tt = tooltipText(f);
+    if (tt) l.bindTooltip(tt, { sticky: true });
+    l.bindPopup('<pre>' + JSON.stringify(f.properties, null, 2) + '</pre>');
+  }}).addTo(map);
+});
+
+const CORNER_BOUNDS = ${JSON.stringify(corner_bounds)};
+const AABB = ${JSON.stringify(aabb)};
+const CENTER = ${JSON.stringify(center)};
+`;
+};
+
+el('toggleCRS').onclick = () => {
+  usingGenerated = !usingGenerated;
+  el('crsMode').textContent = usingGenerated ? 'generated' : 'default';
+  el('toggleCRS').textContent = usingGenerated ? 'Use identity' : 'Use generated CRS';
+  const r = recomputeAffine();
+  if (!r.ok) {
+    if (usingGenerated) {
+      usingGenerated = false;
+      el('crsMode').textContent = 'default';
+      el('toggleCRS').textContent = 'Use generated CRS';
+      activeAffine = { a:1, b:0, c:0, d:0, e:1, f:0 };
+    }
+    updateInfoPanel({ ok:false, reason: r.reason });
+    refreshGeojson(); return;
+  }
+  updateInfoPanel(r); refreshGeojson();
+};
+
+el('reset').onclick = () => {
+  if (!confirm('Clear all settings?')) return;
+  localStorage.removeItem(K);
+  location.reload();
+};
+
+(function makeDraggable() {
+  const panel = el('panel');
+  const header = panel.querySelector('.card-header');
+  let dragging = false, startX = 0, startY = 0, origX = 0, origY = 0;
+  header.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button')) return;
+    dragging = true;
+    startX = e.clientX; startY = e.clientY;
+    const rect = panel.getBoundingClientRect();
+    origX = rect.left; origY = rect.top;
+    panel.style.left = origX + 'px';
+    panel.style.top = origY + 'px';
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    header.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  header.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - startX, dy = e.clientY - startY;
+    panel.style.left = Math.max(0, Math.min(window.innerWidth - 40, origX + dx)) + 'px';
+    panel.style.top  = Math.max(0, Math.min(window.innerHeight - 40, origY + dy)) + 'px';
+  });
+  header.addEventListener('pointerup', (e) => {
+    if (!dragging) return;
+    dragging = false;
+    try { header.releasePointerCapture(e.pointerId); } catch (_) {}
+  });
+})();
+el('btnMinimize').onclick = () => {
+  const body = el('panelBody');
+  body.style.display = body.style.display === 'none' ? '' : 'none';
+};
+
+window.addEventListener('load', () => {
+  let s = loadSettings();
+  if (!s || Object.keys(s.presets).length === 0) {
+    s = seedSettings();
+  } else {
+    let name = lastName;
+    if (!name || !s.presets[name]) {
+      name = Object.keys(s.presets)[0];
+      el('presetName').value = name;
+      lastName = name;
+      localStorage.setItem(K_LAST_NAME, name);
+    }
+    applyPreset(s.presets[name]);
+    coordOrder = val('coordOrder');
+  }
+  refreshPresetList();
+  currentTooltipField = val('searchField') || '';
+  updateSlotUI();
+  const r = recomputeAffine();
+  if (r.ok) updateInfoPanel(r); else recomputeAndRefresh();
+  el('loadBase').click(); el('loadGeojson').click();
+});
+</script>
+</body>
+</html>

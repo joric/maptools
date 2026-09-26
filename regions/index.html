@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PNG → GeoJSON</title>
+</head>
+<body>
+  <h1>PNG → GeoJSON</h1>
+
+  <p>
+    <input type="file" id="imageInput" accept="image/png,image/jpeg">
+  </p>
+
+  <p>
+    <label>dest res <input type="number" id="destRes" value="812900"></label>
+    <label>dx <input type="number" id="dx" value="0"></label>
+    <label>dy <input type="number" id="dy" value="0"></label>
+    <label>sieve <input type="number" id="sieveSize" value="2"></label>
+    <label>simplify <input type="text" id="simplify" value="5%"></label>
+    <button id="convertBtn" disabled>Convert</button>
+  </p>
+
+  <p id="status">Select a PNG.</p>
+
+  <script type="module">
+    import { vectorize, runMapshaper } from './regions.js';
+
+    const imageInput = document.getElementById('imageInput');
+    const convertBtn = document.getElementById('convertBtn');
+    const statusEl = document.getElementById('status');
+    const destResInput = document.getElementById('destRes');
+    const dxInput = document.getElementById('dx');
+    const dyInput = document.getElementById('dy');
+    const sieveSizeInput = document.getElementById('sieveSize');
+    const simplifyInput = document.getElementById('simplify');
+
+    let currentCanvas = null;
+
+    function downloadBlob(content, filename) {
+      const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    imageInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        currentCanvas = canvas;
+        convertBtn.disabled = false;
+        statusEl.textContent = `Loaded ${img.naturalWidth} × ${img.naturalHeight}`;
+      };
+      img.onerror = () => {
+        statusEl.textContent = 'Failed to load image.';
+        convertBtn.disabled = true;
+      };
+      img.src = URL.createObjectURL(file);
+    });
+
+    convertBtn.addEventListener('click', async () => {
+      if (!currentCanvas) return;
+      convertBtn.disabled = true;
+      statusEl.textContent = 'Processing…';
+
+      try {
+        const features = vectorize(
+          currentCanvas,
+          parseFloat(destResInput.value) || 812900,
+          parseFloat(dxInput.value) || 0,
+          parseFloat(dyInput.value) || 0,
+          parseInt(sieveSizeInput.value, 10) || 2,
+          8
+        );
+
+        const rawGeoJSON = { type: 'FeatureCollection', features };
+        const finalGeoJSON = await runMapshaper(rawGeoJSON, simplifyInput.value.trim() || '5%');
+
+        downloadBlob(finalGeoJSON, 'regions.json');
+        statusEl.textContent = `Done: ${features.length} polygons`;
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = 'Error: ' + (err.message || err);
+      } finally {
+        convertBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

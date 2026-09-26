@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "mapshaper": "^0.7.67",
+    "pngjs": "^7.0.0"
+  }
+}
