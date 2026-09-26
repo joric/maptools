@@ -1,4 +1,4 @@
 # Maptools
 
-* See [project wiki](./wiki) for details
+* See [project wiki](../../wiki) for details
 
