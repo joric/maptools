@@ -3,6 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <title>PNG → GeoJSON</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; }
+    fieldset { margin-bottom: 1rem; }
+    #status { margin-top: 1rem; padding: 0.5rem; background: #f0f0f0; border-radius: 4px; }
+    button { margin-right: 0.5rem; }
+  </style>
 </head>
 <body>
   <h1>PNG → GeoJSON</h1>
@@ -40,13 +46,14 @@
       </p>
       <p>
         <label for="simplify">Simplify (mapshaper expression, e.g. <code>5%</code>)</label>
-        <input type="text" id="simplify" value="5%">
+        <input type="text" id="simplify" value="1%">
       </p>
     </fieldset>
 
     <p>
       <button type="submit" id="convertBtn" disabled>Convert</button>
       <button type="button" id="saveBtn" disabled>Save…</button>
+      <button type="button" id="saveRawBtn" disabled>Save Raw GeoJSON</button>
       <button type="button" id="openBtn" disabled>Open in Mapshaper</button>
     </p>
   </form>
@@ -335,6 +342,7 @@
     const imageInput = document.getElementById('imageInput');
     const convertBtn = document.getElementById('convertBtn');
     const saveBtn = document.getElementById('saveBtn');
+    const saveRawBtn = document.getElementById('saveRawBtn');
     const openBtn = document.getElementById('openBtn');
     const statusEl = document.getElementById('status');
     const destResInput = document.getElementById('destRes');
@@ -344,17 +352,21 @@
     const simplifyInput = document.getElementById('simplify');
 
     let currentCanvas = null;
-    let lastGeoJSON = null;         // cached conversion result
+    let lastGeoJSON = null;         // processed (mapshaper) result
+    let lastRawGeoJSON = null;      // raw vectorized result (no mapshaper)
     let lastFeatureCount = 0;
     const defaultFilename = 'regions.json';
+    const rawFilename = 'regions_raw.json';
 
     function setStatus(text) { statusEl.textContent = text; }
 
     function updateButtons() {
       const hasImage = !!currentCanvas;
       const hasResult = !!lastGeoJSON;
+      const hasRawResult = !!lastRawGeoJSON;
       convertBtn.disabled = !hasImage;
       saveBtn.disabled = !hasResult;
+      saveRawBtn.disabled = !hasRawResult;
       openBtn.disabled = !hasResult;
     }
 
@@ -416,6 +428,7 @@
         canvas.getContext('2d').drawImage(img, 0, 0);
         currentCanvas = canvas;
         lastGeoJSON = null;           // stale result is no longer valid
+        lastRawGeoJSON = null;
         lastFeatureCount = 0;
         updateButtons();
         setStatus(`Loaded ${img.naturalWidth} × ${img.naturalHeight}. Ready to convert.`);
@@ -424,6 +437,7 @@
         setStatus('Failed to load image.');
         currentCanvas = null;
         lastGeoJSON = null;
+        lastRawGeoJSON = null;
         updateButtons();
       };
       img.src = URL.createObjectURL(file);
@@ -435,6 +449,7 @@
 
       convertBtn.disabled = true;
       saveBtn.disabled = true;
+      saveRawBtn.disabled = true;
       openBtn.disabled = true;
       setStatus('Processing…');
 
@@ -449,14 +464,24 @@
         );
 
         const rawGeoJSON = { type: 'FeatureCollection', features };
-        const finalGeoJSON = await runMapshaper(rawGeoJSON, simplifyInput.value.trim() || '5%');
+        lastRawGeoJSON = JSON.stringify(rawGeoJSON);
+        lastFeatureCount = features.length;
+
+        // Always attempt mapshaper, but don't fail hard if it's unavailable
+        let finalGeoJSON = lastRawGeoJSON;
+        try {
+          finalGeoJSON = await runMapshaper(rawGeoJSON, simplifyInput.value.trim() || '5%');
+          setStatus(`Converted (simplified): ${features.length} polygons. Click "Save…" or "Save Raw GeoJSON".`);
+        } catch (mapErr) {
+          console.warn('Mapshaper processing failed:', mapErr);
+          setStatus(`Mapshaper unavailable — using raw output. ${features.length} polygons. Click "Save Raw GeoJSON".`);
+        }
 
         lastGeoJSON = finalGeoJSON;
-        lastFeatureCount = features.length;
-        setStatus(`Converted: ${features.length} polygons. Click "Save…" to write the file, or "Open in Mapshaper".`);
       } catch (err) {
         console.error(err);
         lastGeoJSON = null;
+        lastRawGeoJSON = null;
         lastFeatureCount = 0;
         setStatus('Error: ' + (err.message || err));
       } finally {
@@ -469,6 +494,16 @@
       saveBtn.disabled = true;
       try {
         await saveGeoJSON(lastGeoJSON, defaultFilename);
+      } finally {
+        updateButtons();
+      }
+    });
+
+    saveRawBtn.addEventListener('click', async () => {
+      if (!lastRawGeoJSON) return;
+      saveRawBtn.disabled = true;
+      try {
+        await saveGeoJSON(lastRawGeoJSON, rawFilename);
       } finally {
         updateButtons();
       }
