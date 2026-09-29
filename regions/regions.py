@@ -31,6 +31,8 @@ def parse_args():
                          help="Path to the final output GeoJSON (default: regions.json next to input)")
     parser.add_argument("--dest-res", type=float, default=812900,
                          help="Destination resolution used to compute the scale factor (default: 812900)")
+    parser.add_argument("--flip-y", action="store_true",
+                         help="Flip the Y axis before applying dx/dy (useful when the image origin is top-left)")
     parser.add_argument("--dx", type=float, default=0, help="X offset applied after scaling (default: 0)")
     parser.add_argument("--dy", type=float, default=0, help="Y offset applied after scaling (default: 0)")
     parser.add_argument("--sieve-size", type=int, default=2,
@@ -48,7 +50,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def vectorizer(input_path, raw_geojson_path, dest_res, dx, dy, sieve_size, connectivity, skip_color):
+def vectorizer(input_path, raw_geojson_path, dest_res, dx, dy, sieve_size, connectivity, skip_color, flip_y):
     with rasterio.open(input_path) as src:
         height, width = src.height, src.width
         print(f"Input: {width} x {height}")
@@ -82,8 +84,12 @@ def vectorizer(input_path, raw_geojson_path, dest_res, dx, dy, sieve_size, conne
 
             if color in (skip_color or []): continue;
 
+            def transform(x, y):
+                yy = (height - y) if flip_y else y
+                return [(x * scale_factor) + dx, (yy * scale_factor) + dy]
+
             scaled_coords = [
-                [[(x * scale_factor) + dx, (y * scale_factor) + dy] for x, y in ring]
+                [transform(x, y) for x, y in ring]
                 for ring in geom["coordinates"]
             ]
             features.append({
@@ -121,6 +127,7 @@ def main():
         args.sieve_size,
         args.connectivity,
         args.skip_color,
+        args.flip_y,
     )
 
     if args.skip_mapshaper:

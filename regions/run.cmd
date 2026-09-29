@@ -1,4 +1,4 @@
-node regions.js regions.png -o regions.json --simplify "1%%"
+node regions.js regions.png -o regions.json --simplify "1%%" --flip-y
 
 
 

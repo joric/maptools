@@ -29,6 +29,12 @@
         <input type="number" id="destRes" value="812900" step="any" min="0">
       </p>
       <p>
+        <label for="flipY">
+          <input type="checkbox" id="flipY">
+          Flip Y axis (before offsets)
+        </label>
+      </p>
+      <p>
         <label for="dx">X offset</label>
         <input type="number" id="dx" value="0" step="any">
       </p>
@@ -286,7 +292,7 @@
       return features;
     }
 
-    function vectorize(canvas, destRes, dx, dy, sieveSize, connectivity) {
+    function vectorize(canvas, destRes, dx, dy, sieveSize, connectivity, flipY) {
       const { width, height, labels } = readLabels(canvas);
       const scaleFactor = destRes / width;
       const sieved = sieve(labels, width, height, sieveSize, connectivity);
@@ -298,7 +304,10 @@
         geometry: {
           type: 'Polygon',
           coordinates: f.geometry.coordinates.map((ring) =>
-            ring.map(([x, y]) => [x * scaleFactor + dx, y * scaleFactor + dy])),
+            ring.map(([x, y]) => {
+              const yy = flipY ? (height - y) : y;
+              return [x * scaleFactor + dx, yy * scaleFactor + dy];
+            })),
         },
       }));
     }
@@ -346,6 +355,7 @@
     const openBtn = document.getElementById('openBtn');
     const statusEl = document.getElementById('status');
     const destResInput = document.getElementById('destRes');
+    const flipYInput = document.getElementById('flipY');
     const dxInput = document.getElementById('dx');
     const dyInput = document.getElementById('dy');
     const sieveSizeInput = document.getElementById('sieveSize');
@@ -460,7 +470,8 @@
           parseFloat(dxInput.value) || 0,
           parseFloat(dyInput.value) || 0,
           parseInt(sieveSizeInput.value, 10) || 2,
-          8
+          8,
+          flipYInput.checked
         );
 
         const rawGeoJSON = { type: 'FeatureCollection', features };

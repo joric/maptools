@@ -43,6 +43,7 @@ function parseArgs(argv) {
         input: null,
         output: null,
         destRes: 812900,
+        flipY: false,
         dx: 0,
         dy: 0,
         sieveSize: 2,
@@ -63,6 +64,9 @@ function parseArgs(argv) {
                 break;
             case '--dest-res':
                 args.destRes = parseFloat(rest[++i]);
+                break;
+            case '--flip-y':
+                args.flipY = true;
                 break;
             case '--dx':
                 args.dx = parseFloat(rest[++i]);
@@ -123,7 +127,7 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-    console.log(`usage: regions.js input [-o OUTPUT] [--dest-res DEST_RES] [--dx DX] [--dy DY]
+    console.log(`usage: regions.js input [-o OUTPUT] [--dest-res DEST_RES] [--flip-y] [--dx DX] [--dy DY]
                    [--sieve-size SIEVE_SIZE] [--connectivity {4,8}]
                    [--simplify SIMPLIFY] [--keep-intermediate]
                    [--skip-mapshaper] [--skip-color SKIP_COLOR]
@@ -136,6 +140,7 @@ positional arguments:
 options:
   -o, --output          Path to the final output GeoJSON (default: regions.json next to input)
   --dest-res            Destination resolution used to compute the scale factor (default: 812900)
+  --flip-y              Flip the Y axis before applying dx/dy (useful when the image origin is top-left)
   --dx                  X offset applied after scaling (default: 0)
   --dy                  Y offset applied after scaling (default: 0)
   --sieve-size          Remove isolated regions smaller than this many pixels (default: 2)
@@ -465,7 +470,7 @@ async function runMapshaperInMemory(rawGeoJSON, simplify) {
 // Main vectorizer pipeline (mirrors vectorizer() in the Python original)
 // ---------------------------------------------------------------------------
 
-function vectorizer(inputPath, destRes, dx, dy, sieveSize, connectivity, skipColor) {
+function vectorizer(inputPath, destRes, dx, dy, sieveSize, connectivity, skipColor, flipY) {
     const { width, height, labels } = readLabels(inputPath);
     console.log(`Input: ${width} x ${height}`);
 
@@ -480,7 +485,10 @@ function vectorizer(inputPath, destRes, dx, dy, sieveSize, connectivity, skipCol
     for (const f of rawFeatures) {
         if (skip.has(f.properties.color)) continue;
         const scaledCoords = f.geometry.coordinates.map((ring) =>
-            ring.map(([x, y]) => [(x * scaleFactor) + dx, (y * scaleFactor) + dy]));
+            ring.map(([x, y]) => {
+                const yy = flipY ? (height - y) : y;
+                return [(x * scaleFactor) + dx, (yy * scaleFactor) + dy];
+            }));
         features.push({
             type: 'Feature',
             properties: f.properties,
@@ -517,7 +525,8 @@ async function main() {
         args.dy,
         args.sieveSize,
         args.connectivity,
-        args.skipColor
+        args.skipColor,
+        args.flipY
     );
 
     const rawGeoJSON = { type: 'FeatureCollection', features };
