@@ -7,27 +7,39 @@
 </head>
 <body>
     <h2>vips dzsave command generator</h2>
-    <p><small>Fill in the fields, then copy the command line.</small></p>
+    <p><small>Fill in the fields, then click Generate (or press Enter).</small></p>
 
     <form id="dzForm" onsubmit="return false;">
         <table>
             <tr>
                 <td><label for="tileSize">Tile size:</label></td>
-                <td><input type="number" id="tileSize" value="512" min="1" step="1" style="width:6em;"></td>
+                <td><input type="number" id="tileSize" min="1" step="1" style="width:6em;"></td>
             </tr>
             <tr>
                 <td><label for="imagePath">Image path:</label></td>
-                <td><input type="text" id="imagePath" size="50" value="C:\Temp\Exports\Breathedge2\Content\UI\Map\Textures\T_MapOutskirt_V2Test.png"></td>
+                <td><input type="text" id="imagePath" size="50"></td>
             </tr>
             <tr>
                 <td><label for="outputDir">Output dir:</label></td>
-                <td><input type="text" id="outputDir" size="40" value="..\tiles\default"></td>
+                <td><input type="text" id="outputDir" size="40"></td>
+            </tr>
+            <tr>
+                <td><label for="layout">Layout:</label></td>
+                <td>
+                    <select id="layout">
+                        <option value="google">google</option>
+                        <option value="zoomify">zoomify</option>
+                        <option value="iiif">iiif</option>
+                        <option value="iiif3">iiif3</option>
+                        <option value="dzi">dzi (deepzoom)</option>
+                    </select>
+                </td>
             </tr>
             <tr>
                 <td><label for="outputFormat">Output format:</label></td>
                 <td>
                     <select id="outputFormat">
-                        <option value="webp" selected>webp</option>
+                        <option value="webp">webp</option>
                         <option value="jpg">jpg</option>
                         <option value="png">png</option>
                     </select>
@@ -36,13 +48,14 @@
             <tr>
                 <td><label for="percentage">Percentage (Q):</label></td>
                 <td>
-                    <input type="number" id="percentage" value="85" min="0" max="100" step="1" style="width:5em;">
+                    <input type="number" id="percentage" min="0" max="100" step="1" style="width:5em;">
                     <span id="percentageNote"></span>
                 </td>
             </tr>
             <tr>
                 <td colspan="2">
-                    <button type="button" id="generateBtn">Generate command</button>
+                    <button type="submit" id="generateBtn">Generate</button>
+                    <button type="button" id="resetBtn">Reset to defaults</button>
                 </td>
             </tr>
         </table>
@@ -51,49 +64,129 @@
     <hr>
 
     <p><strong>Generated command:</strong></p>
-    <pre id="outputCommand" style="background:#f0f0f0; padding:8px; border:1px solid #ccc; white-space:pre-wrap; word-break:break-all;">... fill the fields and click generate ...</pre>
+    <pre id="outputCommand" style="background:#f0f0f0; padding:8px; border:1px solid #ccc; white-space:pre-wrap; word-break:break-all;"></pre>
+
+    <p><strong>URL template:</strong></p>
+    <pre id="outputUrl" style="background:#f0f0f0; padding:8px; border:1px solid #ccc; white-space:pre-wrap; word-break:break-all;"></pre>
 
     <script>
         (function() {
+            // ---------- Defaults ----------
+            const DEFAULTS = {
+                tileSize: '512',
+                imagePath: 'C:\\Temp\\Exports\\GameName\\Content\\UI\\Map\\Textures\\T_Map.png',
+                outputDir: '..\\tiles\\default',
+                layout: 'google',
+                outputFormat: 'webp',
+                percentage: '85'
+            };
+
+            const STORAGE_KEY = 'vips-dzsave-builder';
+
+            // ---------- Element refs ----------
+            const form = document.getElementById('dzForm');
             const tileSizeInput = document.getElementById('tileSize');
             const imagePathInput = document.getElementById('imagePath');
             const outputDirInput = document.getElementById('outputDir');
+            const layoutSelect = document.getElementById('layout');
             const formatSelect = document.getElementById('outputFormat');
             const percentageInput = document.getElementById('percentage');
             const percentageNote = document.getElementById('percentageNote');
-            const generateBtn = document.getElementById('generateBtn');
+            const resetBtn = document.getElementById('resetBtn');
             const outputPre = document.getElementById('outputCommand');
+            const outputUrl = document.getElementById('outputUrl');
 
-            // Per-format config.
-            // - webp: alpha supported → suffix .webp[Q=n], background "0 0 0 0"
-            // - jpg : no alpha, no background needed → suffix .jpg[Q=n], no --background flag
-            // - png : alpha supported, no Q option → suffix .png, background "0 0 0 0"
+            // ---------- Load / save state ----------
+            function loadState() {
+                try {
+                    const raw = localStorage.getItem(STORAGE_KEY);
+                    if (!raw) return { ...DEFAULTS };
+                    const parsed = JSON.parse(raw);
+                    return { ...DEFAULTS, ...parsed };
+                } catch (e) {
+                    return { ...DEFAULTS };
+                }
+            }
+
+            function saveState(state) {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+                } catch (e) {
+                    // ignore quota / privacy-mode errors
+                }
+            }
+
+            function currentState() {
+                return {
+                    tileSize: tileSizeInput.value,
+                    imagePath: imagePathInput.value,
+                    outputDir: outputDirInput.value,
+                    layout: layoutSelect.value,
+                    outputFormat: formatSelect.value,
+                    percentage: percentageInput.value
+                };
+            }
+
+            function applyState(state) {
+                tileSizeInput.value = state.tileSize;
+                imagePathInput.value = state.imagePath;
+                outputDirInput.value = state.outputDir;
+                layoutSelect.value = state.layout;
+                formatSelect.value = state.outputFormat;
+                percentageInput.value = state.percentage;
+            }
+
+            // ---------- Format helpers ----------
             function getFormatOptions(format, percentage) {
                 switch (format) {
                     case 'webp':
                         return {
-                            suffix: `.webp[Q=${percentage}]`,
-                            background: '"0 0 0 0"',   // preserve alpha
-                            percentageUsed: true
-                        };
-                    case 'jpg':
-                        return {
-                            suffix: `.jpg[Q=${percentage}]`,
-                            background: null,           // JPEG is opaque; omit --background
-                            percentageUsed: true
-                        };
-                    case 'png':
-                        return {
-                            suffix: `.png`,
-                            background: '"0 0 0 0"',   // preserve alpha
-                            percentageUsed: false
-                        };
-                    default:
-                        return {
+                            ext: 'webp',
                             suffix: `.webp[Q=${percentage}]`,
                             background: '"0 0 0 0"',
                             percentageUsed: true
                         };
+                    case 'jpg':
+                        return {
+                            ext: 'jpg',
+                            suffix: `.jpg[Q=${percentage}]`,
+                            background: null,
+                            percentageUsed: true
+                        };
+                    case 'png':
+                        return {
+                            ext: 'png',
+                            suffix: `.png`,
+                            background: '"0 0 0 0"',
+                            percentageUsed: false
+                        };
+                    default:
+                        return {
+                            ext: 'webp',
+                            suffix: `.webp[Q=${percentage}]`,
+                            background: '"0 0 0 0"',
+                            percentageUsed: true
+                        };
+                }
+            }
+
+            function buildUrlTemplate(layout, ext) {
+                let base = outputDirInput.value.trim().replace(/\\/g, '/');
+                base = base.replace(/^(\.\.\/)+/, '');
+                if (!base) base = 'tiles/default';
+
+                switch (layout) {
+                    case 'google':
+                        return `${base}/{z}/{y}/{x}.${ext}`;
+                    case 'zoomify':
+                        return `${base}/TileGroup0/{z}-{x}-{y}.${ext}`;
+                    case 'iiif':
+                    case 'iiif3':
+                        return `${base}/{z}/{x}_{y}.${ext}`;
+                    case 'dzi':
+                        return `${base}/{z}/{y}/{x}.${ext}`;
+                    default:
+                        return `${base}/{z}/{y}/{x}.${ext}`;
                 }
             }
 
@@ -102,11 +195,12 @@
             }
 
             function buildCommand() {
-                const tileSize = tileSizeInput.value.trim() || '512';
+                const tileSize = tileSizeInput.value.trim() || DEFAULTS.tileSize;
                 const imagePath = imagePathInput.value.trim() || '';
                 const outputDir = outputDirInput.value.trim() || '';
+                const layout = layoutSelect.value;
                 const format = formatSelect.value;
-                const percentage = percentageInput.value.trim() || '85';
+                const percentage = percentageInput.value.trim() || DEFAULTS.percentage;
 
                 const quotedImage = `"${escapeDoubleQuotes(imagePath)}"`;
                 const quotedOutput = `"${escapeDoubleQuotes(outputDir)}"`;
@@ -117,11 +211,10 @@
                     'vips dzsave',
                     quotedImage,
                     quotedOutput,
-                    '--layout google',
+                    `--layout ${layout}`,
                     `--tile-size ${tileSize}`
                 ];
 
-                // Only add --background if the format uses it
                 if (opts.background !== null) {
                     parts.push(`--background ${opts.background}`);
                 }
@@ -135,10 +228,16 @@
                 return { command: parts.join(' '), percentageUsed: opts.percentageUsed };
             }
 
-            function updateCommand() {
+            // ---------- Generate ----------
+            function generate() {
                 try {
                     const { command, percentageUsed } = buildCommand();
                     outputPre.textContent = command;
+
+                    const layout = layoutSelect.value;
+                    const format = formatSelect.value;
+                    const ext = getFormatOptions(format, '85').ext;
+                    outputUrl.textContent = buildUrlTemplate(layout, ext);
 
                     if (percentageUsed) {
                         percentageNote.textContent = '';
@@ -146,22 +245,27 @@
                         percentageNote.textContent = '(not used for PNG)';
                     }
 
-                    percentageInput.disabled = !percentageUsed;
+                    saveState(currentState());
                 } catch (e) {
                     outputPre.textContent = 'Error generating command: ' + e.message;
                 }
             }
 
-            generateBtn.addEventListener('click', updateCommand);
-
-            const inputs = [tileSizeInput, imagePathInput, outputDirInput, formatSelect, percentageInput];
-            inputs.forEach(el => {
-                el.addEventListener('input', updateCommand);
-                el.addEventListener('change', updateCommand);
+            // ---------- Wire up ----------
+            form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                generate();
             });
 
-            // Initial render
-            updateCommand();
+            resetBtn.addEventListener('click', () => {
+                applyState({ ...DEFAULTS });
+                saveState({ ...DEFAULTS });
+                generate();
+            });
+
+            // ---------- Init ----------
+            applyState(loadState());
+            generate(); // generate immediately on load
         })();
     </script>
 </body>
