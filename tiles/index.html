@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vips dzsave · command builder</title>
+</head>
+<body>
+    <h2>vips dzsave command generator</h2>
+    <p><small>Fill in the fields, then copy the command line.</small></p>
+
+    <form id="dzForm" onsubmit="return false;">
+        <table>
+            <tr>
+                <td><label for="tileSize">Tile size:</label></td>
+                <td><input type="number" id="tileSize" value="512" min="1" step="1" style="width:6em;"></td>
+            </tr>
+            <tr>
+                <td><label for="imagePath">Image path:</label></td>
+                <td><input type="text" id="imagePath" size="50" value="C:\Temp\Exports\Breathedge2\Content\UI\Map\Textures\T_MapOutskirt_V2Test.png"></td>
+            </tr>
+            <tr>
+                <td><label for="outputDir">Output dir:</label></td>
+                <td><input type="text" id="outputDir" size="40" value="..\tiles\default"></td>
+            </tr>
+            <tr>
+                <td><label for="outputFormat">Output format:</label></td>
+                <td>
+                    <select id="outputFormat">
+                        <option value="webp" selected>webp</option>
+                        <option value="jpg">jpg</option>
+                        <option value="png">png</option>
+                    </select>
+                </td>
+            </tr>
+            <tr>
+                <td><label for="percentage">Percentage (Q):</label></td>
+                <td>
+                    <input type="number" id="percentage" value="85" min="0" max="100" step="1" style="width:5em;">
+                    <span id="percentageNote"></span>
+                </td>
+            </tr>
+            <tr>
+                <td colspan="2">
+                    <button type="button" id="generateBtn">Generate command</button>
+                </td>
+            </tr>
+        </table>
+    </form>
+
+    <hr>
+
+    <p><strong>Generated command:</strong></p>
+    <pre id="outputCommand" style="background:#f0f0f0; padding:8px; border:1px solid #ccc; white-space:pre-wrap; word-break:break-all;">... fill the fields and click generate ...</pre>
+
+    <script>
+        (function() {
+            const tileSizeInput = document.getElementById('tileSize');
+            const imagePathInput = document.getElementById('imagePath');
+            const outputDirInput = document.getElementById('outputDir');
+            const formatSelect = document.getElementById('outputFormat');
+            const percentageInput = document.getElementById('percentage');
+            const percentageNote = document.getElementById('percentageNote');
+            const generateBtn = document.getElementById('generateBtn');
+            const outputPre = document.getElementById('outputCommand');
+
+            // Per-format config.
+            // - webp: alpha supported → suffix .webp[Q=n], background "0 0 0 0"
+            // - jpg : no alpha, no background needed → suffix .jpg[Q=n], no --background flag
+            // - png : alpha supported, no Q option → suffix .png, background "0 0 0 0"
+            function getFormatOptions(format, percentage) {
+                switch (format) {
+                    case 'webp':
+                        return {
+                            suffix: `.webp[Q=${percentage}]`,
+                            background: '"0 0 0 0"',   // preserve alpha
+                            percentageUsed: true
+                        };
+                    case 'jpg':
+                        return {
+                            suffix: `.jpg[Q=${percentage}]`,
+                            background: null,           // JPEG is opaque; omit --background
+                            percentageUsed: true
+                        };
+                    case 'png':
+                        return {
+                            suffix: `.png`,
+                            background: '"0 0 0 0"',   // preserve alpha
+                            percentageUsed: false
+                        };
+                    default:
+                        return {
+                            suffix: `.webp[Q=${percentage}]`,
+                            background: '"0 0 0 0"',
+                            percentageUsed: true
+                        };
+                }
+            }
+
+            function escapeDoubleQuotes(str) {
+                return str.replace(/"/g, '\\"');
+            }
+
+            function buildCommand() {
+                const tileSize = tileSizeInput.value.trim() || '512';
+                const imagePath = imagePathInput.value.trim() || '';
+                const outputDir = outputDirInput.value.trim() || '';
+                const format = formatSelect.value;
+                const percentage = percentageInput.value.trim() || '85';
+
+                const quotedImage = `"${escapeDoubleQuotes(imagePath)}"`;
+                const quotedOutput = `"${escapeDoubleQuotes(outputDir)}"`;
+
+                const opts = getFormatOptions(format, percentage);
+
+                const parts = [
+                    'vips dzsave',
+                    quotedImage,
+                    quotedOutput,
+                    '--layout google',
+                    `--tile-size ${tileSize}`
+                ];
+
+                // Only add --background if the format uses it
+                if (opts.background !== null) {
+                    parts.push(`--background ${opts.background}`);
+                }
+
+                parts.push(
+                    `--suffix ${opts.suffix}`,
+                    '--centre',
+                    '--vips-progress'
+                );
+
+                return { command: parts.join(' '), percentageUsed: opts.percentageUsed };
+            }
+
+            function updateCommand() {
+                try {
+                    const { command, percentageUsed } = buildCommand();
+                    outputPre.textContent = command;
+
+                    if (percentageUsed) {
+                        percentageNote.textContent = '';
+                    } else {
+                        percentageNote.textContent = '(not used for PNG)';
+                    }
+
+                    percentageInput.disabled = !percentageUsed;
+                } catch (e) {
+                    outputPre.textContent = 'Error generating command: ' + e.message;
+                }
+            }
+
+            generateBtn.addEventListener('click', updateCommand);
+
+            const inputs = [tileSizeInput, imagePathInput, outputDirInput, formatSelect, percentageInput];
+            inputs.forEach(el => {
+                el.addEventListener('input', updateCommand);
+                el.addEventListener('change', updateCommand);
+            });
+
+            // Initial render
+            updateCommand();
+        })();
+    </script>
+</body>
+</html>
