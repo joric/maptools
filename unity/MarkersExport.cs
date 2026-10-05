@@ -1,3 +1,5 @@
+// a script for BepInEx 5 and Unity Explorer 5 mono plugin, runs in game from c# console
+
 var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
 var roots = scene.GetRootGameObjects();
 

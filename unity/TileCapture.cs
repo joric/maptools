@@ -1,3 +1,5 @@
+// a script for BepInEx 5 and Unity Explorer 5 mono plugin, runs in game from c# console
+
 var TILES_X=16;
 var TILES_Z=16;
 var TILE_WIDTH=4096;
