@@ -4,153 +4,255 @@
   <meta charset="UTF-8">
   <title>PNG → GeoJSON</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 2rem; }
-    fieldset { margin-bottom: 1rem; }
-    #status { margin-top: 1rem; padding: 0.5rem; background: #f0f0f0; border-radius: 4px; }
-    button { margin-right: 0.5rem; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%; overflow: hidden;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 16px; background: #f5f5f5;
+    }
+    .app { display: flex; flex-direction: column; height: 100vh; padding: 12px; gap: 12px; }
+    .topbar { display: flex; align-items: center; gap: 20px; flex-shrink: 0; }
+    .topbar h1 { margin: 0; font-size: 26px; font-weight: 700; white-space: nowrap; color: #1a202c; }
+    #status {
+      flex: 1; padding: 10px 16px; background: #fff; border: 1px solid #ccc;
+      border-radius: 6px; font-size: 16px; color: #222;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .main { display: flex; gap: 12px; flex: 1; min-height: 0; }
+    .controls-panel {
+      width: 400px; flex-shrink: 0; background: #fff; border: 1px solid #ccc;
+      border-radius: 8px; padding: 14px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    fieldset { border: 1px solid #d0d0d0; border-radius: 6px; padding: 10px 12px 14px 12px; margin: 0; }
+    legend {
+      font-size: 14px; font-weight: 700; color: #444; padding: 0 6px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .field-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .field-row:last-child { margin-bottom: 0; }
+    .field-row label { flex-shrink: 0; font-size: 16px; color: #222; min-width: 90px; }
+    .field-row input[type="number"],
+    .field-row input[type="text"] {
+      flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid #bbb;
+      border-radius: 5px; font-size: 16px; font-family: inherit; background: #fff;
+    }
+    .field-row input[type="number"]:focus,
+    .field-row input[type="text"]:focus { outline: 2px solid #2b6cb0; border-color: #2b6cb0; }
+    .field-row input[type="file"] { flex: 1; min-width: 0; font-size: 15px; padding: 6px; }
+    .field-row input[type="checkbox"] { margin: 0; width: 20px; height: 20px; cursor: pointer; }
+    .checkbox-label { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 16px; user-select: none; }
+    .hint { font-size: 14px; color: #777; margin: 4px 0 4px 0; line-height: 1.4; }
+    .color-input-group { display: flex; align-items: center; gap: 8px; flex: 1; }
+    .color-input-group input[type="text"] { flex: 1; min-width: 0; font-family: monospace; font-size: 16px; }
+    .color-swatch { width: 32px; height: 32px; border: 2px solid #999; border-radius: 5px; flex-shrink: 0; }
+    .color-input-group button {
+      padding: 6px 10px; font-size: 16px; line-height: 1; border: 1px solid #bbb;
+      border-radius: 5px; background: #f0f0f0; cursor: pointer;
+    }
+    .color-input-group button:hover { background: #e0e0e0; }
+    .buttons {
+      display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto;
+      padding-top: 10px; border-top: 2px solid #eee;
+    }
+    .buttons button {
+      flex: 1 1 auto; padding: 10px 12px; font-size: 16px; font-weight: 600;
+      border: 1px solid #bbb; background: #fafafa; border-radius: 6px;
+      cursor: pointer; white-space: nowrap; transition: background 0.15s;
+    }
+    .buttons button:hover:not(:disabled) { background: #eef4ff; border-color: #7aa5d8; }
+    .buttons button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .buttons button.primary { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
+    .buttons button.primary:hover:not(:disabled) { background: #1e4e82; }
+
+    .map-panel {
+      flex: 1; min-width: 0; background: #fff; border: 1px solid #ccc;
+      border-radius: 8px; padding: 10px; display: flex; flex-direction: column;
+    }
+    .map-panel h3 {
+      margin: 0 0 8px 0; font-size: 18px; font-weight: 700; color: #222;
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    }
+    .map-panel h3 .meta { font-weight: 500; font-size: 14px; color: #777; }
+    .coord-readout {
+      font-family: monospace; font-size: 14px; font-weight: 600; color: #2b6cb0;
+      background: #eef4ff; padding: 3px 8px; border-radius: 4px;
+      border: 1px solid #c5d8ef; white-space: nowrap;
+    }
+    #map {
+      flex: 1; min-height: 0; border-radius: 6px; background: #fafafa;
+      border: 1px solid #e0e0e0;
+    }
+    .leaflet-image-layer {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+    .leaflet-control-layers {
+      font-size: 15px;
+      border-radius: 6px;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.25);
+    }
+    .leaflet-control-layers-list { padding: 8px 10px; }
+    .leaflet-control-layers label {
+      margin-bottom: 4px; display: flex; align-items: center; gap: 6px;
+    }
+    .leaflet-control-layers input[type="checkbox"] {
+      width: 16px; height: 16px; margin: 0;
+    }
+    @media (max-width: 1100px) {
+      .main { flex-direction: column; }
+      .controls-panel { width: 100%; height: auto; max-height: 40vh; }
+    }
   </style>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
-  <h1>PNG → GeoJSON</h1>
+  <div class="app">
+    <div class="topbar">
+      <h1>PNG → GeoJSON</h1>
+      <p id="status" role="status">Select a PNG.</p>
+    </div>
 
-  <form id="controls">
-    <fieldset>
-      <legend>Input</legend>
-      <p>
-        <label for="imageInput">Image (PNG/JPEG)</label>
-        <input type="file" id="imageInput" accept="image/png,image/jpeg">
-      </p>
-    </fieldset>
+    <div class="main">
+      <div class="controls-panel">
+        <form id="controls" style="display: contents;">
+          <fieldset>
+            <legend>Input</legend>
+            <div class="field-row">
+              <input type="file" id="imageInput" accept="image/png,image/jpeg">
+            </div>
+          </fieldset>
 
-    <fieldset>
-      <legend>Output</legend>
-      <p>
-        <label for="destRes">Destination resolution (width in output units)</label>
-        <input type="number" id="destRes" value="812900" step="any" min="0">
-      </p>
-      <p>
-        <label for="flipY">
-          <input type="checkbox" id="flipY">
-          Flip Y axis (before offsets)
-        </label>
-      </p>
-      <p>
-        <label for="dx">X offset</label>
-        <input type="number" id="dx" value="0" step="any">
-      </p>
-      <p>
-        <label for="dy">Y offset</label>
-        <input type="number" id="dy" value="0" step="any">
-      </p>
-    </fieldset>
+          <fieldset>
+            <legend>Output</legend>
+            <div class="field-row">
+              <label for="destRes" title="Width in output units">Dest. res</label>
+              <input type="number" id="destRes" value="812900" step="any" min="0">
+            </div>
+            <div class="field-row">
+              <label for="dx">X offset</label>
+              <input type="number" id="dx" value="0" step="any">
+            </div>
+            <div class="field-row">
+              <label for="dy">Y offset</label>
+              <input type="number" id="dy" value="0" step="any">
+            </div>
+            <div class="field-row">
+              <label class="checkbox-label" for="flipY">
+                <input type="checkbox" id="flipY">
+                Flip Y axis (data)
+              </label>
+            </div>
+          </fieldset>
 
-    <fieldset>
-      <legend>Cleanup</legend>
-      <p>
-        <label for="sieveSize">Sieve size (drop blobs smaller than N px)</label>
-        <input type="number" id="sieveSize" value="2" min="1" step="1">
-      </p>
-      <p>
-        <label for="simplify">Simplify (mapshaper expression, e.g. <code>5%</code>)</label>
-        <input type="text" id="simplify" value="1%">
-      </p>
-    </fieldset>
+          <fieldset>
+            <legend>Cleanup</legend>
+            <div class="field-row">
+              <label for="sieveSize" title="Drop blobs smaller than N px">Sieve size</label>
+              <input type="number" id="sieveSize" value="2" min="1" step="1">
+            </div>
+            <div class="field-row">
+              <label for="simplify" title="Mapshaper simplify percentage">Simplify (%)</label>
+              <input type="number" id="simplify" value="1" min="0" step="any">
+            </div>
+          </fieldset>
 
-    <p>
-      <button type="submit" id="convertBtn" disabled>Convert</button>
-      <button type="button" id="saveBtn" disabled>Save…</button>
-      <button type="button" id="saveRawBtn" disabled>Save Raw GeoJSON</button>
-      <button type="button" id="openBtn" disabled>Open in Mapshaper</button>
-    </p>
-  </form>
+          <fieldset>
+            <legend>Skip color</legend>
+            <div class="field-row">
+              <div class="color-input-group">
+                <input type="text" id="skipColor" placeholder="#ffffff" value="#ffffff" maxlength="7">
+                <div class="color-swatch" id="skipColorSwatch" style="background:#ffffff;"></div>
+                <button type="button" id="clearSkipColor" title="Clear">✕</button>
+              </div>
+            </div>
+            <div class="hint">Exclude polygons matching this hex color.</div>
+          </fieldset>
 
-  <p id="status" role="status">Select a PNG.</p>
+          <div class="buttons">
+            <button type="submit" id="convertBtn" class="primary" disabled>Convert</button>
+            <button type="button" id="saveBtn" disabled>Save…</button>
+            <button type="button" id="saveRawBtn" disabled>Save Raw</button>
+            <button type="button" id="openBtn" disabled>Mapshaper</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="map-panel">
+        <h3>
+          Map
+          <span class="coord-readout" id="coordReadout">—</span>
+          <span class="meta" id="geoFeatureCount"></span>
+        </h3>
+        <div id="map"></div>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="https://mapshaper.org/modules.js"></script>
   <script type="module" src="https://mapshaper.org/mapshaper.js"></script>
 
   <script type="module">
+    // ---------- Vectorization ----------
     function readLabels(canvas) {
       const ctx = canvas.getContext('2d');
       const { width, height } = canvas;
       const data = ctx.getImageData(0, 0, width, height).data;
       const labels = new Int32Array(width * height);
-      for (let i = 0, p = 0; i < labels.length; i++, p += 4) {
-        labels[i] = (data[p] << 16) | (data[p + 1] << 8) | data[p + 2];
-      }
+      for (let i = 0, p = 0; i < labels.length; i++, p += 4)
+        labels[i] = (data[p] << 16) | (data[p+1] << 8) | data[p+2];
       return { width, height, labels };
     }
-
     function labelComponents(values, width, height, connectivity) {
       const n = width * height;
       const compId = new Int32Array(n).fill(-1);
-      const compValue = [];
-      const compSize = [];
-      const neighborOffsets = connectivity === 8
-        ? [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]]
-        : [[-1, 0], [1, 0], [0, -1], [0, 1]];
+      const compValue = [], compSize = [];
+      const nb = connectivity === 8
+        ? [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]
+        : [[-1,0],[1,0],[0,-1],[0,1]];
       const stack = new Int32Array(n);
       let nextId = 0;
-
       for (let start = 0; start < n; start++) {
         if (compId[start] !== -1) continue;
         const value = values[start];
-        let sp = 0;
-        stack[sp++] = start;
-        compId[start] = nextId;
+        let sp = 0; stack[sp++] = start; compId[start] = nextId;
         let size = 0;
         while (sp > 0) {
-          const idx = stack[--sp];
-          size++;
-          const r = (idx / width) | 0;
-          const c = idx % width;
-          for (const [dr, dc] of neighborOffsets) {
+          const idx = stack[--sp]; size++;
+          const r = (idx / width) | 0, c = idx % width;
+          for (const [dr, dc] of nb) {
             const nr = r + dr, nc = c + dc;
             if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
             const nidx = nr * width + nc;
             if (compId[nidx] !== -1 || values[nidx] !== value) continue;
-            compId[nidx] = nextId;
-            stack[sp++] = nidx;
+            compId[nidx] = nextId; stack[sp++] = nidx;
           }
         }
-        compValue.push(value);
-        compSize.push(size);
-        nextId++;
+        compValue.push(value); compSize.push(size); nextId++;
       }
-
-      return {
-        compId,
-        compValue: Int32Array.from(compValue),
-        compSize: Int32Array.from(compSize),
-        numComps: nextId,
-      };
+      return { compId, compValue: Int32Array.from(compValue),
+               compSize: Int32Array.from(compSize), numComps: nextId };
     }
-
     function sieve(labels, width, height, sieveSize, connectivity) {
       if (sieveSize <= 1) return labels.slice();
-
-      let { compId, compValue, compSize, numComps } = labelComponents(labels, width, height, connectivity);
-
+      let { compId, compValue, compSize, numComps } =
+        labelComponents(labels, width, height, connectivity);
       const parent = new Int32Array(numComps);
       for (let i = 0; i < numComps; i++) parent[i] = i;
-      function find(x) {
-        while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
-        return x;
-      }
-
+      function find(x) { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
       const n = width * height;
-      const orthOffsets = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-      const order = Array.from({ length: numComps }, (_, i) => i).sort((a, b) => compSize[a] - compSize[b]);
-
+      const orth = [[-1,0],[1,0],[0,-1],[0,1]];
+      const order = Array.from({length: numComps}, (_, i) => i)
+        .sort((a, b) => compSize[a] - compSize[b]);
       for (const comp of order) {
         const root = find(comp);
         if (compSize[root] >= sieveSize) continue;
-
         const contact = new Map();
         for (let idx = 0; idx < n; idx++) {
           if (find(compId[idx]) !== root) continue;
           const r = (idx / width) | 0, c = idx % width;
-          for (const [dr, dc] of orthOffsets) {
+          for (const [dr, dc] of orth) {
             const nr = r + dr, nc = c + dc;
             if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
             const nroot = find(compId[nr * width + nc]);
@@ -159,43 +261,34 @@
           }
         }
         if (contact.size === 0) continue;
-
         let best = -1, bestCount = -1;
-        for (const [nroot, count] of contact) {
+        for (const [nroot, count] of contact)
           if (count > bestCount) { bestCount = count; best = nroot; }
-        }
-        parent[root] = best;
-        compSize[best] += compSize[root];
+        parent[root] = best; compSize[best] += compSize[root];
       }
-
       const out = new Int32Array(n);
       for (let idx = 0; idx < n; idx++) out[idx] = compValue[find(compId[idx])];
       return out;
     }
-
-    function rotateRight(dx, dy) { return [dy, -dx]; }
-    function rotateLeft(dx, dy) { return [-dy, dx]; }
-
+    function rotR(dx, dy) { return [dy, -dx]; }
+    function rotL(dx, dy) { return [-dy, dx]; }
     function ringArea2(ring) {
       let s = 0;
       for (let i = 0; i < ring.length - 1; i++) {
-        const [x0, y0] = ring[i], [x1, y1] = ring[i + 1];
-        s += x0 * y1 - x1 * y0;
+        const [x0, y0] = ring[i], [x1, y1] = ring[i+1];
+        s += x0*y1 - x1*y0;
       }
       return s;
     }
-
     function pointInRing(px, py, ring) {
       let inside = false;
       for (let i = 0, j = ring.length - 2; i < ring.length - 1; j = i++) {
         const [xi, yi] = ring[i], [xj, yj] = ring[j];
-        if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+        if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi))
           inside = !inside;
-        }
       }
       return inside;
     }
-
     function traceComponentRings(compId, root, find, width, height) {
       const edgesFrom = new Map();
       function addEdge(x0, y0, x1, y1) {
@@ -204,12 +297,10 @@
         list.push([x1 - x0, y1 - y0, x1, y1]);
         edgesFrom.set(key, list);
       }
-
       const inComp = (r, c) => {
         if (r < 0 || r >= height || c < 0 || c >= width) return false;
         return find(compId[r * width + c]) === root;
       };
-
       for (let r = 0; r < height; r++) {
         for (let c = 0; c < width; c++) {
           if (!inComp(r, c)) continue;
@@ -219,31 +310,24 @@
           if (!inComp(r, c + 1)) addEdge(c + 1, r + 1, c + 1, r);
         }
       }
-
       const visited = new Set();
       const rings = [];
-
       for (const startKey of Array.from(edgesFrom.keys())) {
         for (const startEdge of edgesFrom.get(startKey)) {
           const edgeKey = `${startKey}->${startEdge[2]},${startEdge[3]}`;
           if (visited.has(edgeKey)) continue;
-
           const [sx, sy] = startKey.split(',').map(Number);
           const ring = [[sx, sy]];
           let cx = sx, cy = sy;
           let [dx, dy, tx, ty] = startEdge;
           visited.add(`${cx},${cy}->${tx},${ty}`);
-
           while (true) {
-            ring.push([tx, ty]);
-            cx = tx; cy = ty;
+            ring.push([tx, ty]); cx = tx; cy = ty;
             if (cx === sx && cy === sy) break;
-
             const candidates = edgesFrom.get(`${cx},${cy}`) || [];
-            const [rdx, rdy] = rotateRight(dx, dy);
-            const [ldx, ldy] = rotateLeft(dx, dy);
+            const [rdx, rdy] = rotR(dx, dy);
+            const [ldx, ldy] = rotL(dx, dy);
             const priority = [[rdx, rdy], [dx, dy], [ldx, ldy], [-dx, -dy]];
-
             let chosen = null;
             for (const [pdx, pdy] of priority) {
               const cand = candidates.find(([edx, edy, ex, ey]) => {
@@ -252,11 +336,9 @@
               });
               if (cand) { chosen = cand; break; }
             }
-            if (!chosen) {
-              chosen = candidates.find(([edx, edy, ex, ey]) => !visited.has(`${cx},${cy}->${ex},${ey}`));
-            }
+            if (!chosen) chosen = candidates.find(([edx, edy, ex, ey]) =>
+              !visited.has(`${cx},${cy}->${ex},${ey}`));
             if (!chosen) break;
-
             [dx, dy, tx, ty] = chosen;
             visited.add(`${cx},${cy}->${tx},${ty}`);
           }
@@ -265,26 +347,28 @@
       }
       return rings;
     }
-
-    function shapes(labels, width, height, connectivity) {
+    function shapes(labels, width, height, connectivity, skipColorHex) {
       const { compId, compValue, numComps } = labelComponents(labels, width, height, connectivity);
       const features = [];
-
+      let skipValue = null;
+      if (skipColorHex && skipColorHex.trim() !== '') {
+        const cleaned = skipColorHex.trim().replace(/^#/, '').toLowerCase();
+        if (/^[0-9a-f]{6}$/.test(cleaned)) skipValue = parseInt(cleaned, 16);
+      }
       for (let comp = 0; comp < numComps; comp++) {
+        if (skipValue !== null && compValue[comp] === skipValue) continue;
         const rings = traceComponentRings(compId, comp, (x) => x, width, height);
         if (rings.length === 0) continue;
-
         const shells = [], holes = [];
         for (const ring of rings) {
           if (ringArea2(ring) < 0) shells.push(ring);
           else holes.push(ring);
         }
-
         for (const shell of shells) {
           const myHoles = holes.filter((h) => pointInRing(h[0][0], h[0][1], shell));
           features.push({
             type: 'Feature',
-            properties: { color: `#${(compValue[comp] >>> 0).toString(16).padStart(6, '0')}` },
+            properties: { color: `#${(compValue[comp] >>> 0).toString(16).padStart(6,'0')}` },
             geometry: { type: 'Polygon', coordinates: [shell, ...myHoles] },
           });
         }
@@ -292,12 +376,12 @@
       return features;
     }
 
-    function vectorize(canvas, destRes, dx, dy, sieveSize, connectivity, flipY) {
+    // Vectorize into Y-down pixel-space coords (same as the image).
+    function vectorize(canvas, destRes, dx, dy, sieveSize, connectivity, flipY, skipColorHex) {
       const { width, height, labels } = readLabels(canvas);
-      const scaleFactor = destRes / width;
+      const scale = destRes / width;
       const sieved = sieve(labels, width, height, sieveSize, connectivity);
-      const rawFeatures = shapes(sieved, width, height, connectivity);
-
+      const rawFeatures = shapes(sieved, width, height, connectivity, skipColorHex);
       return rawFeatures.map((f) => ({
         type: 'Feature',
         properties: f.properties,
@@ -306,47 +390,43 @@
           coordinates: f.geometry.coordinates.map((ring) =>
             ring.map(([x, y]) => {
               const yy = flipY ? (height - y) : y;
-              return [x * scaleFactor + dx, yy * scaleFactor + dy];
+              return [x * scale + dx, yy * scale + dy];
             })),
         },
       }));
     }
 
-    function runMapshaper(rawGeoJSON, simplify) {
+    // Build a mapshaper simplify expression from a plain percentage number.
+    // Empty or invalid input falls back to '1%'.
+    function buildSimplifyExpr(raw) {
+      const n = parseFloat(raw);
+      if (!isFinite(n) || n < 0) return '1%';
+      return n + '%';
+    }
+
+    function runMapshaper(rawGeoJSON, simplifyExpr) {
       const commands = [
-        '-i input.geojson',
-        '-clean',
-        '-explode',
-        `-simplify ${simplify}`,
-        '-o output.geojson',
+        '-i input.geojson', '-clean', '-explode',
+        `-simplify ${simplifyExpr}`, '-o output.geojson',
       ].join(' ');
-
       const input = { 'input.geojson': JSON.stringify(rawGeoJSON) };
-
       return new Promise((resolve, reject) => {
         let result;
-        try {
-          result = mapshaper.applyCommands(commands, input);
-        } catch (e) {
-          return reject(e);
-        }
-
+        try { result = mapshaper.applyCommands(commands, input); }
+        catch (e) { return reject(e); }
         const handle = (output) => {
-          if (!output || !output['output.geojson']) {
+          if (!output || !output['output.geojson'])
             return reject(new Error('mapshaper produced no output.geojson'));
-          }
           const raw = output['output.geojson'];
           const text = typeof raw === 'string' ? raw : new TextDecoder('utf-8').decode(raw);
           resolve(text);
         };
-
         if (result && typeof result.then === 'function') result.then(handle).catch(reject);
         else handle(result);
       });
     }
 
-    // ----- UI wiring -----
-
+    // ---------- UI ----------
     const form = document.getElementById('controls');
     const imageInput = document.getElementById('imageInput');
     const convertBtn = document.getElementById('convertBtn');
@@ -360,15 +440,72 @@
     const dyInput = document.getElementById('dy');
     const sieveSizeInput = document.getElementById('sieveSize');
     const simplifyInput = document.getElementById('simplify');
+    const skipColorInput = document.getElementById('skipColor');
+    const skipColorSwatch = document.getElementById('skipColorSwatch');
+    const clearSkipColorBtn = document.getElementById('clearSkipColor');
+    const geoFeatureCount = document.getElementById('geoFeatureCount');
+    const coordReadout = document.getElementById('coordReadout');
 
     let currentCanvas = null;
-    let lastGeoJSON = null;         // processed (mapshaper) result
-    let lastRawGeoJSON = null;      // raw vectorized result (no mapshaper)
-    let lastFeatureCount = 0;
+    let imageDataUrl = null;
+    let imageWidth = 0;
+    let imageHeight = 0;
+    let lastGeoJSON = null;
+    let lastRawGeoJSON = null;
+
     const defaultFilename = 'regions.json';
     const rawFilename = 'regions_raw.json';
 
-    function setStatus(text) { statusEl.textContent = text; }
+    // ---- Custom CRS: Y-DOWN pixel coordinates ----
+    const YDownCRS = L.extend({}, L.CRS.Simple, {
+      transformation: new L.Transformation(1, 0, -1, 0),
+      scale: function (zoom) { return Math.pow(2, zoom); },
+      zoom: function (scale) { return Math.log(scale) / Math.LN2; },
+    });
+
+    const map = L.map('map', {
+      crs: YDownCRS,
+      minZoom: -10,
+      zoomControl: true,
+      attributionControl: false,
+    });
+    map.setView([0, 0], 2);
+
+    // Dedicated LayerGroups so we can register them with the control and
+    // toggle them independently without removing/re-adding individual layers.
+    const imageLayerGroup = L.layerGroup().addTo(map);
+    const geoJsonLayerGroup = L.layerGroup().addTo(map);
+
+    let imageOverlay = null;
+    let geoJsonLayer = null;
+
+    // ---- Layers control ----
+    const overlays = {
+      'Image': imageLayerGroup,
+      'GeoJSON': geoJsonLayerGroup,
+    };
+    L.control.layers(null, overlays, {
+      collapsed: false,
+      position: 'topright',
+    }).addTo(map);
+
+    function formatCoord(n) {
+      if (!isFinite(n)) return '—';
+      if (Math.abs(n) >= 1000) return n.toFixed(1);
+      if (Math.abs(n) >= 1) return n.toFixed(2);
+      return n.toFixed(4);
+    }
+    map.on('mousemove', (e) => {
+      const x = e.latlng.lng;
+      const y = -e.latlng.lat;
+      coordReadout.textContent = `X: ${formatCoord(x)}, Y: ${formatCoord(y)}`;
+    });
+    map.on('mouseout', () => { coordReadout.textContent = '—'; });
+    map.getContainer().addEventListener('mouseleave', () => {
+      coordReadout.textContent = '—';
+    });
+
+    function setStatus(t) { statusEl.textContent = t; }
 
     function updateButtons() {
       const hasImage = !!currentCanvas;
@@ -379,48 +516,133 @@
       saveRawBtn.disabled = !hasRawResult;
       openBtn.disabled = !hasResult;
     }
+    function updateSkipColorSwatch() {
+      const v = skipColorInput.value.trim().replace(/^#/, '');
+      skipColorSwatch.style.background =
+        /^[0-9a-fA-F]{6}$/.test(v) ? '#' + v : '#ffffff';
+    }
+    skipColorInput.addEventListener('input', updateSkipColorSwatch);
+    skipColorInput.addEventListener('change', updateSkipColorSwatch);
+    clearSkipColorBtn.addEventListener('click', () => {
+      skipColorInput.value = ''; updateSkipColorSwatch();
+    });
 
-    // Classic fallback: download to the browser's default download folder.
+    function getParams() {
+      return {
+        destRes: parseFloat(destResInput.value) || 812900,
+        dx: parseFloat(dxInput.value) || 0,
+        dy: parseFloat(dyInput.value) || 0,
+        flipY: flipYInput.checked,
+      };
+    }
+
+    // Image bounds in the Y-down CRS.
+    function updateImageLayer() {
+      if (imageOverlay) {
+        imageLayerGroup.removeLayer(imageOverlay);
+        imageOverlay = null;
+      }
+      if (!imageDataUrl) return;
+      const { destRes, dx, dy } = getParams();
+      const scale = destRes / imageWidth;
+      const outW = destRes;
+      const outH = imageHeight * scale;
+      const bounds = [
+        [-(dy + outH), dx],
+        [-dy, dx + outW],
+      ];
+      imageOverlay = L.imageOverlay(imageDataUrl, bounds, {
+        opacity: 1, interactive: false, className: 'leaflet-image-layer',
+      });
+      imageOverlay.addTo(imageLayerGroup);
+    }
+
+    // GeoJSON authored in Y-down pixel space; convert to Leaflet's lat = -y.
+    function geojsonForLeaflet(geojson) {
+      return {
+        type: 'FeatureCollection',
+        features: geojson.features.map((f) => ({
+          type: 'Feature',
+          properties: f.properties,
+          geometry: {
+            type: f.geometry.type,
+            coordinates: f.geometry.coordinates.map((ring) =>
+              ring.map(([x, y]) => [x, -y])
+            ),
+          },
+        })),
+      };
+    }
+
+    function updateGeoJsonLayer(geojsonText) {
+      if (geoJsonLayer) {
+        geoJsonLayerGroup.removeLayer(geoJsonLayer);
+        geoJsonLayer = null;
+      }
+      if (!geojsonText) { geoFeatureCount.textContent = ''; return; }
+      let geojson;
+      try { geojson = JSON.parse(geojsonText); }
+      catch (e) { console.warn('Invalid GeoJSON:', e); return; }
+
+      const leafletGeo = geojsonForLeaflet(geojson);
+      geoJsonLayer = L.geoJSON(leafletGeo, {
+        style: (feature) => {
+          const color = feature.properties?.color || '#3388ff';
+          return { color, weight: 2, opacity: 0.9, fillColor: color, fillOpacity: 0.35 };
+        },
+        onEachFeature: (feature, layer) => {
+          if (feature.properties?.color)
+            layer.bindTooltip(`Color: ${feature.properties.color}`, { sticky: true });
+        },
+      });
+      geoJsonLayer.addTo(geoJsonLayerGroup);
+
+      const count = geojson.features ? geojson.features.length : 0;
+      geoFeatureCount.textContent = `${count} feature${count !== 1 ? 's' : ''}`;
+    }
+
+    function fitMapToContent() {
+      const layers = [];
+      if (imageOverlay) layers.push(imageOverlay);
+      if (geoJsonLayer) layers.push(geoJsonLayer);
+      if (layers.length === 0) { map.setView([0, 0], 2); return; }
+      const group = L.featureGroup(layers);
+      const bounds = group.getBounds();
+      if (bounds.isValid()) map.fitBounds(bounds, { padding: [20, 20] });
+    }
+
+    function refreshImageAlignment() {
+      updateImageLayer();
+      fitMapToContent();
+    }
+
     function downloadBlob(content, filename) {
       const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
       const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }
-
-    // Modern API: open a "Save As" dialog so the user chooses the directory.
     async function saveGeoJSON(content, suggestedName) {
       const supportsFileSystemAccess = 'showSaveFilePicker' in window &&
         (() => { try { return window.self === window.top; } catch { return false; } })();
-
       if (!supportsFileSystemAccess) {
         setStatus('File System Access API not supported. Downloading to default folder…');
         downloadBlob(content, suggestedName);
         setStatus(`Saved ${suggestedName} to your Downloads folder.`);
         return;
       }
-
       try {
         const handle = await window.showSaveFilePicker({
           suggestedName,
-          types: [{
-            description: 'GeoJSON',
-            accept: { 'application/geo+json': ['.geojson', '.json'] },
-          }],
+          types: [{ description: 'GeoJSON', accept: { 'application/geo+json': ['.geojson', '.json'] } }],
         });
         const writable = await handle.createWritable();
         await writable.write(content);
         await writable.close();
         setStatus(`Saved to "${handle.name}".`);
       } catch (err) {
-        if (err.name === 'AbortError') {
-          setStatus('Save cancelled.');
-          return;
-        }
+        if (err.name === 'AbortError') { setStatus('Save cancelled.'); return; }
         console.error(err);
         setStatus('Save failed: ' + (err.message || err));
       }
@@ -429,71 +651,78 @@
     imageInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
-
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
         canvas.width = img.naturalWidth;
         canvas.height = img.naturalHeight;
         canvas.getContext('2d').drawImage(img, 0, 0);
+
         currentCanvas = canvas;
-        lastGeoJSON = null;           // stale result is no longer valid
+        imageWidth = img.naturalWidth;
+        imageHeight = img.naturalHeight;
+        imageDataUrl = canvas.toDataURL('image/png');
+
+        lastGeoJSON = null;
         lastRawGeoJSON = null;
-        lastFeatureCount = 0;
+        geoFeatureCount.textContent = '';
+
+        updateImageLayer();
+        updateGeoJsonLayer(null);
+        fitMapToContent();
         updateButtons();
         setStatus(`Loaded ${img.naturalWidth} × ${img.naturalHeight}. Ready to convert.`);
       };
       img.onerror = () => {
         setStatus('Failed to load image.');
-        currentCanvas = null;
-        lastGeoJSON = null;
-        lastRawGeoJSON = null;
+        currentCanvas = null; imageDataUrl = null;
+        imageWidth = 0; imageHeight = 0;
+        lastGeoJSON = null; lastRawGeoJSON = null;
+        updateImageLayer(); updateGeoJsonLayer(null);
+        map.setView([0, 0], 2);
         updateButtons();
       };
       img.src = URL.createObjectURL(file);
     });
 
+    destResInput.addEventListener('change', refreshImageAlignment);
+    dxInput.addEventListener('change', refreshImageAlignment);
+    dyInput.addEventListener('change', refreshImageAlignment);
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (!currentCanvas) return;
-
       convertBtn.disabled = true;
       saveBtn.disabled = true;
       saveRawBtn.disabled = true;
       openBtn.disabled = true;
       setStatus('Processing…');
-
       try {
+        const { destRes, dx, dy, flipY } = getParams();
+        const skipColor = skipColorInput.value.trim();
         const features = vectorize(
-          currentCanvas,
-          parseFloat(destResInput.value) || 812900,
-          parseFloat(dxInput.value) || 0,
-          parseFloat(dyInput.value) || 0,
+          currentCanvas, destRes, dx, dy,
           parseInt(sieveSizeInput.value, 10) || 2,
-          8,
-          flipYInput.checked
+          8, flipY, skipColor
         );
-
         const rawGeoJSON = { type: 'FeatureCollection', features };
         lastRawGeoJSON = JSON.stringify(rawGeoJSON);
-        lastFeatureCount = features.length;
 
-        // Always attempt mapshaper, but don't fail hard if it's unavailable
         let finalGeoJSON = lastRawGeoJSON;
+        const simplifyExpr = buildSimplifyExpr(simplifyInput.value);
         try {
-          finalGeoJSON = await runMapshaper(rawGeoJSON, simplifyInput.value.trim() || '5%');
-          setStatus(`Converted (simplified): ${features.length} polygons. Click "Save…" or "Save Raw GeoJSON".`);
+          finalGeoJSON = await runMapshaper(rawGeoJSON, simplifyExpr);
+          setStatus(`Converted (simplified ${simplifyExpr}): ${features.length} polygons.`);
         } catch (mapErr) {
           console.warn('Mapshaper processing failed:', mapErr);
-          setStatus(`Mapshaper unavailable — using raw output. ${features.length} polygons. Click "Save Raw GeoJSON".`);
+          setStatus(`Mapshaper unavailable — using raw output. ${features.length} polygons.`);
         }
-
         lastGeoJSON = finalGeoJSON;
+        updateGeoJsonLayer(lastGeoJSON);
       } catch (err) {
         console.error(err);
-        lastGeoJSON = null;
-        lastRawGeoJSON = null;
-        lastFeatureCount = 0;
+        lastGeoJSON = null; lastRawGeoJSON = null;
+        updateGeoJsonLayer(null);
         setStatus('Error: ' + (err.message || err));
       } finally {
         updateButtons();
@@ -503,32 +732,25 @@
     saveBtn.addEventListener('click', async () => {
       if (!lastGeoJSON) return;
       saveBtn.disabled = true;
-      try {
-        await saveGeoJSON(lastGeoJSON, defaultFilename);
-      } finally {
-        updateButtons();
-      }
+      try { await saveGeoJSON(lastGeoJSON, defaultFilename); }
+      finally { updateButtons(); }
     });
-
     saveRawBtn.addEventListener('click', async () => {
       if (!lastRawGeoJSON) return;
       saveRawBtn.disabled = true;
-      try {
-        await saveGeoJSON(lastRawGeoJSON, rawFilename);
-      } finally {
-        updateButtons();
-      }
+      try { await saveGeoJSON(lastRawGeoJSON, rawFilename); }
+      finally { updateButtons(); }
     });
-
     openBtn.addEventListener('click', () => {
       if (!lastGeoJSON) return;
-      // Mapshaper's web app rejects cross-origin POSTs.
-      // Open mapshaper.org and let the user drag the saved file in.
       window.open('https://mapshaper.org/', '_blank', 'noopener');
       setStatus(`Opened mapshaper.org. Save the file first, then drag it onto the page.`);
     });
 
     updateButtons();
+    updateSkipColorSwatch();
+    setTimeout(() => map.invalidateSize(), 100);
+    window.addEventListener('resize', () => map.invalidateSize());
   </script>
 </body>
 </html>
